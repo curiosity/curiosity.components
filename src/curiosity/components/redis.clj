@@ -1,4 +1,4 @@
-(ns curiosity.analytics.lib.components.redis
+(ns curiosity.components.redis
   (:require [com.stuartsierra.component :as component]
             [schema.core :as s]
             [plumbing.core :refer :all]))
