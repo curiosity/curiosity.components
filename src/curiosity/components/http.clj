@@ -4,61 +4,33 @@
             [schema.core :as s]
             [plumbing.core :refer :all]
             [raven-clj.ring :refer [wrap-sentry]]
-            [curiosity.components.types :as types]
-            [ring.middleware.params :refer [wrap-params]]
-            [ring.middleware.keyword-params :refer [wrap-keyword-params]]
-            [ring.middleware.nested-params :refer [wrap-nested-params]])
-  (:import [curiosity.components.jdbc PooledJDBC]))
+            [curiosity.components.types :as types]))
 
 
-(defmacro definject-wrapper
-  "Creates a ring middleware to wrap requests by injecting the specified
-   resource into the request."
-  [key doc]
-  `(defn  ~(symbol (str "wrap-" key))
-         ~doc
-         [handler# thing#]
-         (fn [req#]
-           (-> req#
-               (assoc ~(keyword key) thing#)
-               handler#))))
-
-(definject-wrapper db
-  "Injects a db instance into the request")
-
-
+;; Injections is a set of keywords that will be injected on the component
+;; prior to start time. At start time, they are selected off the RingHandler
+;; and added to a closure applied to each request.
 (s/defrecord RingHandler
   [handler    :- types/Fn
-   db         :- PooledJDBC
+   injections :- [s/Keyword]
    app        :- types/Fn
    sentry-dsn :- s/Str]
 
   component/Lifecycle
   (start [this]
-    (let [app (-> handler (wrap-db db))]
-      (assoc this :app
-        (if sentry-dsn
-          (-> app (wrap-sentry sentry-dsn))
-          app))))
+    (let [app #(handler (apply assoc % (select-keys this injections)))]
+      (assoc this :app (if sentry-dsn (wrap-sentry app sentry-dsn) app))))
   (stop [this] (dissoc this :app)))
 
-
-(comment
-
-  (use 'clojure.tools.trace)
-  (trace-ns 'org.httpkit.server)
-  (require '[com.stuartsierra.component :as component])
-  (require '[curiosity.analytics.web.system :as system])
-  (def sys (system/create-system))
-  (def nsys (component/start-system sys))
-
-  )
 
 (defnk new-ring-handler
   "Creates a RingHandler component that will inject the postgres and redis"
   [handler    :- s/Any
-   {sentry-dsn :- (s/maybe s/Str) nil}]
-  (map->RingHandler {:handler handler :sentry-dsn sentry-dsn}))
+   {sentry-dsn :- (s/maybe s/Str) nil
+    injections :- [s/Keyword] []}]
+  (map->RingHandler {:handler handler
+                     :sentry-dsn sentry-dsn
+                     :injections injections}))
 
 (s/defrecord WebServer
   [server         :- types/Fn
