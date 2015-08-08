@@ -6,6 +6,8 @@
             [raven-clj.ring :refer [wrap-sentry]]
             [curiosity.components.types :as types]))
 
+;; If you're using this, consider requiring curiosity.components.injections.json
+;; to enable transparent DateTime encoding.
 
 ;; Injections is a set of keywords that will be injected on the component
 ;; prior to start time. At start time, they are selected off the RingHandler

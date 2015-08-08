@@ -7,6 +7,10 @@
   (:import [com.mchange.v2.c3p0 ComboPooledDataSource DataSources]
            [java.net URI]))
 
+;; If you're using these components, consider requiring
+;; curiosity.components.injections.jdbc to get transparent json support
+;; and support for joda DateTime objects.
+
 (s/defn url->pg-spec
   "Given a Database URL for a PG DB, return a db spec"
   [url :- s/Str]
