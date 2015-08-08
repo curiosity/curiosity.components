@@ -9,6 +9,7 @@
                  [prismatic/plumbing "0.4.4"]
                  [prismatic/schema "0.4.3"]
                  [curiosity.utils "0.5.0"]
+                 [environ "1.0.0"]
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  [com.emidln/destructured-component "0.3.0"]
                  [slingshot "0.12.2"]
