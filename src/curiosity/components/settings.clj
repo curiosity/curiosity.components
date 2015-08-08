@@ -1,9 +1,13 @@
 (ns curiosity.components.settings
-  (:require [plumbing.core :refer [map-keys fn->>]]
+  (:require [com.stuartsierra.component :as component]
+            [plumbing.core :refer [map-keys fn->>]]
             [schema.core :as s]
             [schema.coerce :as coerce]
-            [clojure.string :refer [replace]]
+            [schema.utils :refer [error?] :rename {error? schema-error?}]
+            [slingshot.slingshot :refer [throw+]]
+            [clojure.string :as str]
             [curiosity.utils :refer [have! get']]
+            [curiosity.components.types :as types]
             [environ.core :as environ]))
 
 ;; Yes this is called some? in 1.6+
@@ -74,8 +78,49 @@
                               keys
                               (select-keys (env))
                               (map-keys (fn->> name
-                                               (#(replace % (re-pattern (str prefix "-")) ""))
+                                               (#(str/replace % (re-pattern (str prefix "-")) ""))
                                                keyword))
                               (#(merge defaults % overrides))
                               build-settings)]
      (coercer ?valid-settings))))
+
+(defn composite-system
+  "Takes some system factories that depend on a settings map and turns them into systems"
+  [systems m]
+  (->> ((apply juxt systems) m)
+       (apply merge)))
+
+(s/defn create-system
+  "Creates a system based on available settings. Settings may be passed
+   in to override detected settings."
+  [project-name :- s/Str
+   settings-schema :- types/Map
+   settings-defaults :- types/Map
+   sys-factory :- types/Fn
+   & [additional :- types/Map]]
+  ;; Resolve settings
+  (let [config (resolve-settings! project-name settings-schema settings-defaults additional)]
+    (if (schema-error? config)
+      (throw+ {:type :invalid-configuration
+               :error-container config})
+      ;; build the system
+      (->> config
+           sys-factory
+           (apply concat)
+           (apply component/system-map)))))
+
+(defmacro defshortcuts
+  "Defines create-system, start-system, stop-system, and jump-start in your namespace"
+  [project-name settings-schema settings-defaults]
+  `(do
+     (def ~'create-system
+       "Takes a system-factory and returns a SystemMap ready for start'ing"
+       (partial curiosity.components.settings/create-system
+                                 ~project-name
+                                 ~settings-schema
+                                 ~settings-defaults))
+     (curiosity.utils/defalias ~'start-system com.stuartsierra.component/start-system)
+     (curiosity.utils/defalias ~'stop-system com.stuartsierra.component/stop-system)
+     (defn ~'jump-start
+       "Takes a system-factory (settings parameter) and returns the started system"
+       [~'system-factory] (-> ~'system-factory ~'create-system ~'start-system))) )
