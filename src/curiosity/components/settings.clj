@@ -109,7 +109,7 @@
            (apply concat)
            (apply component/system-map)))))
 
-(defmacro defshortcuts
+(defmacro def-system-shortcuts
   "Defines create-system, start-system, stop-system, and jump-start in your namespace"
   [project-name settings-schema settings-defaults]
   `(do
