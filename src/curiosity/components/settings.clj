@@ -68,8 +68,7 @@
   ([prefix schema defaults]
    (resolve-settings! prefix schema defaults nil))
   ([prefix schema defaults overrides]
-   (let [schema
-         coercer (coerce/coercer schema json-coercion-matcher)
+   (let [coercer (coerce/coercer schema json-coercion-matcher)
          ?valid-settings (->> schema
                               (map-keys (fn->> name (str prefix "-") keyword))
                               keys
