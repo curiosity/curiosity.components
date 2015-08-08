@@ -26,8 +26,8 @@
 (defnk new-ring-handler
   "Creates a RingHandler component that will inject the postgres and redis"
   [handler    :- s/Any
-   {sentry-dsn :- (s/maybe s/Str) nil
-    injections :- [s/Keyword] []}]
+   {sentry-dsn :- (s/maybe s/Str) nil}
+   {injections :- [s/Keyword] []}]
   (map->RingHandler {:handler handler
                      :sentry-dsn sentry-dsn
                      :injections injections}))
