@@ -20,7 +20,11 @@
 
   component/Lifecycle
   (start [this]
-    (let [app #(handler (apply assoc % (select-keys this injections)))]
+    (let [app (fn [req]
+                (let [injectables (select-keys this injections)]
+                  (handler (if (empty? injectables)
+                             req
+                             (apply assoc % injectables)))))]
       (assoc this :app (if sentry-dsn (wrap-sentry app sentry-dsn) app))))
   (stop [this] (dissoc this :app)))
 
