@@ -24,7 +24,7 @@
                 (let [injectables (select-keys this injections)]
                   (handler (if (empty? injectables)
                              req
-                             (apply assoc % injectables)))))]
+                             (apply assoc req injectables)))))]
       (assoc this :app (if sentry-dsn (wrap-sentry app sentry-dsn) app))))
   (stop [this] (dissoc this :app)))
 
