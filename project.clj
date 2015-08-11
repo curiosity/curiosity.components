@@ -8,7 +8,8 @@
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [prismatic/plumbing "0.4.4"]
                  [prismatic/schema "0.4.3"]
-                 [curiosity.utils "0.5.0"]
+                 [com.taoensso/encore "2.4.2"]
+                 [curiosity.utils "0.5.0" :exclusions [com.taoensso/encore]]
                  [environ "1.0.0"]
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  [com.emidln/destructured-component "0.3.0"]
@@ -38,7 +39,8 @@
                  [clojurewerkz/elastisch "2.2.0-beta4"]
 
                  ;; redis
-                 [com.curiosity/crache "1.0.0-rc3"]
+                 [com.curiosity/crache "1.0.0-rc3" :exclusions [com.taoensso/carmine]]
+                 [com.taoensso/carmine "2.11.1"]
 
                  ;; postgresql
                  [org.clojure/java.jdbc "0.3.6"]
