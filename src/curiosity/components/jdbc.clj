@@ -44,8 +44,6 @@
 
   component/Lifecycle
   (start [this]
-    (when db-uri
-      (assoc this ))
     (let [spec (if db-uri
                  (url->pg-spec db-uri)
                  db-spec)]
