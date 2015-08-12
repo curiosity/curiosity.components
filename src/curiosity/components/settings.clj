@@ -80,7 +80,7 @@
 (s/defn create-system
   "Creates a SystemMap given a system-factory based on available settings."
   [sys-factory :- types/Fn]
-  (->> sys-factory
+  (->> (sys-factory)
        (apply concat)
        (apply component/system-map)))
 
