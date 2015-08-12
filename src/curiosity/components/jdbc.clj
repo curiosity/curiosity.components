@@ -39,22 +39,24 @@
 
 (s/defrecord PooledJDBC
   [db-spec :- types/Map
+   db-uri :- (s/maybe s/Str)
    connection :- types/Map]
 
   component/Lifecycle
   (start [this]
-    (assoc this :connection (assoc db-spec :connection (c3p0-pool db-spec))))
+    (when db-uri
+      (assoc this ))
+    (let [spec (if db-uri
+                 (url->pg-spec db-uri)
+                 db-spec)]
+      (assoc this :connection (assoc spec :connection (c3p0-pool spec)))))
   (stop [this]
     (DataSources/destroy (:datasource connection))
     (dissoc this :connection)))
 
-(defnk new-pooled-jdbc-spec
+(s/defn new-pooled-jdbc-spec
   "Creates a new c3p0-pooled JDBC Connection from db-spec"
-  [db-spec :- types/Map]
-  (map->PooledJDBC {:db-spec db-spec}))
-
-
-(defnk new-pooled-jdbc-uri
-  "Creates a new c3p0-pooled JDBC Connection from db-uri"
-  [db-uri :- s/Str]
-  (new-pooled-jdbc-spec {:db-spec (url->pg-spec db-uri)}))
+  ([]
+   (map->PooledJDBC {}))
+  ([db-spec :- types/Map]
+   (map->PooledJDBC {:db-spec db-spec})))

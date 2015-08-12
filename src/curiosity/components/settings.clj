@@ -6,22 +6,8 @@
             [schema.utils :refer [error?] :rename {error? schema-error?}]
             [slingshot.slingshot :refer [throw+]]
             [clojure.string :as str]
-            [curiosity.utils :refer [have! get']]
             [curiosity.components.types :as types]
             [environ.core :as environ]))
-
-;; Yes this is called some? in 1.6+
-;; No, storm does not support 1.6+
-(defn not-nil?
-  {:static true}
-  [x]
-  (not (nil? x)))
-
-(defn validate-keys
-  "Asserts that dependent is set when source is"
-  [m source dependent]
-  (when (get' m source)
-    (have! not-nil? (get' m dependent))))
 
 (defn parse-number
   "Reads a number from a string. Returns nil if not a number."
@@ -42,20 +28,14 @@
 (def +str->int-coercions+
   {s/Int try-number-fallback-str})
 
-(defn json-coercion-matcher
+(s/defn json-coercion-matcher
   "A matcher that coerces keywords and keyword enums from strings, and longs and doubles
   from numbers on the JVM (without losing precision)"
-  [schema]
+  [schema :- types/Map]
   (or (+str->int-coercions+ schema)
       (coerce/+json-coercions+ schema)
       (coerce/keyword-enum-matcher schema)
       (coerce/set-matcher schema)))
-
-
-(def build-settings
-  "Final pass before validating the settings map"
-  ;; this is where discovery would go if we performed it
-  identity)
 
 (defn env
   []
@@ -65,62 +45,52 @@
     (#'environ/read-system-env)
     (#'environ/read-system-props)))
 
-(def prefix-keys
-  #(map-keys (fn->> name (str %1 "-") keyword) %2))
+(s/defn resolve-settings!*
+  [prefix :- s/Str
+   schema :- types/Map
+   defaults :- types/Map
+   overrides :- types/Map]
+  (let [coercer (coerce/coercer schema json-coercion-matcher)
+        ?valid-settings (->> schema
+                             (map-keys (fn->> name (str prefix "-") keyword))
+                             keys
+                             (select-keys (env))
+                             (map-keys (fn->> name
+                                              (#(str/replace % (re-pattern (str prefix "-")) ""))
+                                              keyword))
+                             (#(merge defaults % overrides)))]
+     (coercer ?valid-settings)))
 
 (defn resolve-settings!
   ([prefix schema defaults]
    (resolve-settings! prefix schema defaults nil))
   ([prefix schema defaults overrides]
-   (let [coercer (coerce/coercer schema json-coercion-matcher)
-         ?valid-settings (->> schema
-                              (map-keys (fn->> name (str prefix "-") keyword))
-                              keys
-                              (select-keys (env))
-                              (map-keys (fn->> name
-                                               (#(str/replace % (re-pattern (str prefix "-")) ""))
-                                               keyword))
-                              (#(merge defaults % overrides))
-                              build-settings)]
-     (coercer ?valid-settings))))
+   (let [config (resolve-settings!* prefix schema defaults overrides)]
+     (if (schema-error? config)
+       (throw+ {:type :invalid-configuration
+                :error-container config})
+       config))))
 
-(defn composite-system
-  "Takes some system factories that depend on a settings map and turns them into systems"
-  [systems m]
-  (->> ((apply juxt systems) m)
+(s/defn composite-system
+  "Takes some system factories turns them into map"
+  [systems :- [types/Fn]]
+  (->> ((apply juxt systems))
        (apply merge)))
 
 (s/defn create-system
-  "Creates a system based on available settings. Settings may be passed
-   in to override detected settings."
-  [project-name :- s/Str
-   settings-schema :- types/Map
-   settings-defaults :- types/Map
-   sys-factory :- types/Fn
-   & [additional :- types/Map]]
-  ;; Resolve settings
-  (let [config (resolve-settings! project-name settings-schema settings-defaults additional)]
-    (if (schema-error? config)
-      (throw+ {:type :invalid-configuration
-               :error-container config})
-      ;; build the system
-      (->> config
-           sys-factory
-           (apply concat)
-           (apply component/system-map)))))
+  "Creates a SystemMap given a system-factory based on available settings."
+  [sys-factory :- types/Fn]
+  (->> sys-factory
+       (apply concat)
+       (apply component/system-map)))
 
 (defmacro def-system-shortcuts
   "Defines create-system, start-system, stop-system, and jump-start in your namespace"
   [project-name settings-schema settings-defaults]
   `(do
-     (def ~'create-system
-       "Takes a system-factory and returns a SystemMap ready for start'ing"
-       (partial curiosity.components.settings/create-system
-                                 ~project-name
-                                 ~settings-schema
-                                 ~settings-defaults))
+     (curiosity.utils/defalias ~'create-system curiosity.components.settings/create-system)
      (curiosity.utils/defalias ~'start-system com.stuartsierra.component/start-system)
      (curiosity.utils/defalias ~'stop-system com.stuartsierra.component/stop-system)
      (defn ~'jump-start
        "Takes a system-factory (settings parameter) and returns the started system"
-       [~'system-factory] (-> ~'system-factory ~'create-system ~'start-system))) )
+       [~'system-factory] (-> ~'system-factory ~'create-system ~'start-system))))

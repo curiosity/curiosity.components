@@ -30,10 +30,11 @@
   (stop [this]
     (dissoc this :conn-opts)))
 
-(defnk new-pooled-redis
-  "Optional redis-uri must be injected if not provided"
-  [{redis-uri :- s/Str nil}]
-  (map->PooledCarmine {:redis-uri redis-uri}))
+(s/defn new-redis
+  ([]
+   (map->PooledCarmine {}))
+  ([redis-uri :- s/Str]
+   (map->PooledCarmine {:redis-uri redis-uri})))
 
 
 (defmacro with-redis
@@ -95,7 +96,7 @@
     (car-mq/enqueue queue-name msg)))
 
 
-(defnk new-redis-worker
+(defnk new-worker
   "Takes a handler, with queue-name, workers, threads, and redis optional and injectable"
   [handler :- types/Fn
    {queue-name :- s/Str nil}
@@ -109,7 +110,7 @@
                        :redis redis}))
 
 
-(defn simple-redis-worker-handler
+(defn simple-worker-wrapper
   "Wraps a function that receives a message and automatically acks the message unless
    an exception is thrown. If an exception is thrown, retry? true will retry the message,
    while retry? false will fail the message.

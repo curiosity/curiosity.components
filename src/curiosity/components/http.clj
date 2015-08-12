@@ -28,7 +28,6 @@
       (assoc this :app (if sentry-dsn (wrap-sentry app sentry-dsn) app))))
   (stop [this] (dissoc this :app)))
 
-
 (defnk new-ring-handler
   "Creates a RingHandler component that will inject the postgres and redis"
   [handler    :- s/Any
@@ -64,8 +63,8 @@
 
 (defnk new-web-server
   "Creates an HTTP-Kit component with an injectable ring handler"
-  [ip              :- s/Str
-   port            :- s/Int
+  [{port           :- s/Int           8080}
+   {ip             :- s/Str           "127.0.0.1"}
    {io-threads     :- (s/maybe s/Int) nil}
    {worker-threads :- (s/maybe s/Int) nil}
    {dispatch?      :- s/Bool          true}]

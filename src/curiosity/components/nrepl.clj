@@ -18,7 +18,8 @@
       (dissoc this :instance)
       this)))
 
-
-(defnk new-nrepl-server
-  [port :- s/Int]
-  (map->nReplServer {:port port}))
+(s/defn new-nrepl-server
+  ([]
+   (map->nReplServer {}))
+  ([port :- s/Int]
+   (map->nReplServer {:port port})))
