@@ -41,7 +41,7 @@
   "Given a redis component and some commands, run commands in the context of the redis component's conn"
   {:arglists '([redis-component :as-pipeline & body] [redis-component & body])}
   [redis-component & sigs]
-  `(car/wcar ~(:conn-opts redis-component) ~@sigs))
+  `(car/wcar (:conn-opts ~redis-component) ~@sigs))
 
 
 (s/defrecord CarmineWorker
