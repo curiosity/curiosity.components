@@ -38,6 +38,8 @@
       (coerce/set-matcher schema)))
 
 (defn env
+  "environ.core/env, but as a fn and not cached. Calling this often is slow, you should probably
+   cache it yourself in a component."
   []
   (merge
     ;; These are technically private. I don't care.
@@ -85,7 +87,7 @@
        (apply component/system-map)))
 
 (defmacro def-system-shortcuts
-  "Defines create-system, start-system, stop-system, and jump-start in your namespace"
+  "Defines create-system, start-system, stop-system, and jump-start in your namespace."
   [project-name settings-schema settings-defaults]
   `(do
      (require 'curiosity.utils 'com.stuartsierra.component)
