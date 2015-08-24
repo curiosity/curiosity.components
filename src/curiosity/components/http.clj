@@ -37,6 +37,13 @@
                      :sentry-dsn sentry-dsn
                      :injections injections}))
 
+(defn stop-undertow!
+  "Stops the undertow instance"
+  [ut]
+  (try
+    (.stop ut)
+    (catch NullPointerException _)))
+
 (s/defrecord WebServer
   [server         :- types/Fn
    ip             :- s/Str
@@ -48,17 +55,17 @@
 
   component/Lifecycle
   (start [this]
-    (when server (.stop server))
-    (let [nserver (run-undertow (:app app)
-                                      {:port port
-                                       :host ip
-                                       :io-threads io-threads
-                                       :worker-threads worker-threads
-                                       :dispatch? dispatch?})]
-      (assoc this :server nserver)))
+    (if server
+      this
+      (let [nserver (run-undertow (:app app)
+                                  {:port port
+                                   :host ip
+                                   :io-threads io-threads
+                                   :worker-threads worker-threads
+                                   :dispatch? dispatch?})]
+        (assoc this :server nserver))))
   (stop [this]
-    (when server
-       (.stop server))
+    (stop-undertow! server)
     (dissoc this :server)))
 
 (defnk new-web-server
