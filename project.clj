@@ -5,6 +5,9 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :jvm-optons ["-Xmx1G"]
   :repl-options {:timeout 120000}
+  :repositories [["s3" {:url "s3p://curiosity-java-jars-private/jars/"
+                        :username :env/aws_access_key
+                        :passphrase :env/aws_secret_key}]]
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [prismatic/plumbing "0.4.4"]
                  [prismatic/schema "0.4.3"]
