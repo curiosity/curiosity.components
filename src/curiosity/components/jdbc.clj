@@ -46,9 +46,9 @@
   (start [this]
     (if db-spec
       ;; we have a db-spec, setup the connection pool
-      (assoc this :connection (assoc db-spec :connection (c3p0-pool spec)))
+      (assoc this :connection (assoc db-spec :connection (c3p0-pool db-spec)))
       ;; setup db-spec and recur
-      (component/start (assoc this :db-spec (url->pg-spec db-uri))))
+      (component/start (assoc this :db-spec (url->pg-spec db-uri)))))
   (stop [this]
     ;; this should possibly be guarded against a NPE here
     (DataSources/destroy (:datasource connection))
