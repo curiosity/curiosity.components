@@ -8,7 +8,7 @@
   :repositories [["s3" {:url "s3p://curiosity-java-jars-private/jars/"
                         :username :env/aws_access_key
                         :passphrase :env/aws_secret_key}]]
-  :dependencies [[org.clojure/clojure "1.6.0"]
+  :dependencies [[org.clojure/clojure "1.7.0"]
                  [prismatic/plumbing "0.4.4"]
                  [prismatic/schema "0.4.3"]
                  [com.taoensso/encore "2.4.2"]
