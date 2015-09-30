@@ -26,9 +26,9 @@
                  [cheshire "5.4.0"]
 
                  ;; metrics component
-                 [metrics-clojure "2.4.0"]
-                 [metrics-clojure-jvm "2.4.0"]
-                 [metrics-clojure-ring "2.4.0"]
+                 [metrics-clojure "2.5.1"]
+                 [metrics-clojure-jvm "2.5.1"]
+                 [metrics-clojure-ring "2.5.1"]
 
                  ;; s3 and sqs
                  [com.amazonaws/aws-java-sdk "1.9.36"]
