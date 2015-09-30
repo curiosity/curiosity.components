@@ -73,6 +73,33 @@
                 :error-container config})
        config))))
 
+(defrecord Settings
+  [built?* project-name* schema* defaults*]
+  component/Lifecycle
+  (start [this]
+    (if built?*
+      this
+      (merge this
+             (resolve-settings! project-name* schema* defaults*)
+             {:built? true})))
+  (stop [this]
+    (if built?
+      (map->Settings {:built? false?
+                      :project-name* project-name*
+                      :schema* schema*
+                      :defaults* defaults*})
+      this)))
+
+(defn new-settings-system
+  [project-name settings-schema settings-defaults]
+  (map->Settings {:built?* false
+                  :project-name* project-name*
+                  :schema* settings-schema
+                  :defaults* settings-defaults}))
+
+
+
+
 (s/defn composite-system
   "Takes some system factories turns them into map"
   [systems :- [types/Fn]]
