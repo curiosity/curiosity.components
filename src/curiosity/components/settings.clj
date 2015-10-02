@@ -81,10 +81,10 @@
       this
       (merge this
              (resolve-settings! project-name* schema* defaults*)
-             {:built? true})))
+             {:built?* true})))
   (stop [this]
-    (if built?
-      (map->Settings {:built? false?
+    (if built?*
+      (map->Settings {:built?* false?
                       :project-name* project-name*
                       :schema* schema*
                       :defaults* defaults*})
@@ -93,23 +93,16 @@
 (defn new-settings-system
   [project-name settings-schema settings-defaults]
   (map->Settings {:built?* false
-                  :project-name* project-name*
+                  :project-name* project-name
                   :schema* settings-schema
                   :defaults* settings-defaults}))
 
 
 
-
-(s/defn composite-system
-  "Takes some system factories turns them into map"
-  [systems :- [types/Fn]]
-  (->> ((apply juxt systems))
-       (apply merge)))
-
 (s/defn create-system
   "Creates a SystemMap given a system-factory based on available settings."
-  [sys-factory :- types/Fn]
-  (->> (sys-factory)
+  [sys-factory :- types/Map]
+  (->> sys-factory
        (apply concat)
        (apply component/system-map)))
 

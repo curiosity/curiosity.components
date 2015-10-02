@@ -1,6 +1,7 @@
 (ns curiosity.components.metrics
   (:require [metrics.core :refer [new-registry]]
-            [metrics.jvm.core :refer [instrument-jvm]]))
+            [metrics.jvm.core :refer [instrument-jvm]]
+            [com.stuartsierra.component :as component]))
 
 (defrecord Metrics
   [registry]

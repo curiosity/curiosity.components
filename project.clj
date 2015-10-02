@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.2.0-SNAPSHOT"
+(defproject curiosity.components "0.3.0-SNAPSHOT"
   :description "FIXME: write description"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
@@ -11,7 +11,7 @@
   :dependencies [[org.clojure/clojure "1.7.0"]
                  [prismatic/plumbing "0.4.4"]
                  [prismatic/schema "0.4.3"]
-                 [com.taoensso/encore "2.4.2"]
+                 [com.taoensso/encore "2.19.0"]
                  [curiosity.utils "0.5.0" :exclusions [com.taoensso/encore]]
                  [environ "1.0.0"]
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
@@ -43,7 +43,7 @@
 
                  ;; redis
                  [com.curiosity/crache "1.0.0-rc3" :exclusions [com.taoensso/carmine]]
-                 [com.taoensso/carmine "2.11.1"]
+                 [com.taoensso/carmine "2.12.0"]
 
                  ;; postgresql
                  [org.clojure/java.jdbc "0.3.6"]
@@ -60,8 +60,8 @@
                  [ring "1.4.0"]
                  [ring/ring-codec "1.0.0"]
                  [ring/ring-headers "0.1.3"]
-                 [ring/ring-json "0.3.1"]
                  [ring/ring-defaults "0.1.5"]
+                 [ring-middleware-format "0.6.0"]
                  [jumblerg/ring.middleware.cors "1.0.1"]
                  [ring-basic-authentication "1.0.5"]
                  [ring-undertow-adapter "0.2.2"]

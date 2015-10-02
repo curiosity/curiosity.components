@@ -15,8 +15,8 @@
   "Given a Database URL for a PG DB, return a db spec"
   [url :- s/Str]
   (let [db-uri (URI. url)
-        user-info (or (.getUserInfo db-uri) "")
-        [user pass] (str/split user-info #":")]
+        user-info (.getUserInfo db-uri)
+        [user pass] (if user-info  (str/split user-info #":") "")]
     {:classname "org.postgresql.Driver"
      :subprotocol "postgresql"
      :user user

@@ -1,12 +1,12 @@
 (ns curiosity.components.http
   (:require [com.stuartsierra.component :as component]
             [ring.adapter.undertow :refer [run-undertow]]
-            [ring.middleware.format.response :refer [wrap-restful-response]]
+            [ring.middleware.format-response :refer [wrap-restful-response]]
             [schema.core :as s]
             [plumbing.core :refer :all]
             [raven-clj.ring :as raven-ring]
             [curiosity.components.types :as types]
-            [slingshot.slingshot :refer [try+]]
+            [slingshot.slingshot :refer [try+ throw+]]
             metrics.ring.instrument
             metrics.ring.expose))
 
@@ -34,12 +34,12 @@
 
 (defn expose-metrics-at-slash-metrics
   "Exposes metrics at /json"
-  [[registry] handler]
+  [[{registry :registry}] handler]
   (metrics.ring.expose/expose-metrics-as-json handler "/metrics" registry))
 
 (defn instrument-ring-handler
   "Instruments a ring handler with some basic metrics"
-  [[registry] handler]
+  [[{registry :registry}] handler]
   (metrics.ring.instrument/instrument handler registry))
 
 (defn sentry-wrapper
@@ -72,7 +72,7 @@
                              (apply assoc req (apply concat injectables))))))
 
                            ;; resolve the middleware
-          wrapped-app (->> (map #(if (keyword? m) (-> this m) m) middleware)
+          wrapped-app (->> (map #(if (keyword? %) (this %) %) middleware)
                            ;; order them correctly for composition
                            reverse
                            ;; final wrap
