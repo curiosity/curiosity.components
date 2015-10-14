@@ -15,11 +15,16 @@
 
 (defrecord RingMiddleware
   [middleware-fn dependencies middleware]
+  ;; be a component
   component/Lifecycle
   (start [this]
     (if middleware
       middleware
-      (assoc this :middleware (partial middleware-fn (select-keys this dependencies)))))
+      (let [deps (for [d dependencies]
+                   (if (var? d)
+                     d
+                     (get this d)))]
+        (assoc this :middleware (fn [handler] (middleware-fn deps handler))))))
   (stop [this]
     (if middleware
       (dissoc this :middleware)
@@ -27,20 +32,24 @@
 
 (defn new-ring-middleware
   "Creates a RingMiddleware"
-  [middleware-fn dependencies]
+  ([middleware-fn]
+   (new-ring-middleware middleware-fn []))
+  ([middleware-fn dependencies]
   (map->RingMiddleware {:middleware-fn middleware-fn
-                        :dependencies dependencies}))
+                        :dependencies dependencies})))
 
 
 (defn expose-metrics-at-slash-metrics
   "Exposes metrics at /json"
-  [[{registry :registry}] handler]
-  (metrics.ring.expose/expose-metrics-as-json handler "/metrics" registry))
+  [[registry-var] handler]
+  ;; This get passed a var pointing to an atom, so double deref
+  (metrics.ring.expose/expose-metrics-as-json handler "/metrics" @@registry-var))
 
 (defn instrument-ring-handler
   "Instruments a ring handler with some basic metrics"
-  [[{registry :registry}] handler]
-  (metrics.ring.instrument/instrument handler registry))
+  [[registry-var] handler]
+  ;; This get passed a var pointing to an atom, so double deref
+  (metrics.ring.instrument/instrument handler @@registry-var))
 
 (defn sentry-wrapper
   "Wraps a ring handler, sending 500s to sentry"
@@ -53,15 +62,16 @@
 
 ;; Middleware is a vector of keywords or fns to be composed together to wrap
 ;; the handler. If keywords, there should be a middleware wrapper at that keyword
-;; on the RingHandler by dependency injection.
+;; on the RingHandler by dependency injection. The first middleware listed is closest
+;; to the handler. The last middleware is the first middleware executed on a request and
+;; the last middleware to have access to the response.
 ;; The schema definition [(s/either s/Keyword types/Fn)] is technically redundant
 ;; (keywords are IFns, but the redundancy helps document the intended shape).
 (s/defrecord RingHandler
   [handler    :- types/Fn
    injections :- [s/Keyword]
    middleware :- [(s/either s/Keyword types/Fn)]
-   app        :- types/Fn
-   sentry-dsn :- s/Str]
+   app        :- types/Fn]
 
   component/Lifecycle
   (start [this]
@@ -72,22 +82,21 @@
                              (apply assoc req (apply concat injectables))))))
 
                            ;; resolve the middleware
-          wrapped-app (->> (map #(if (keyword? %) (this %) %) middleware)
-                           ;; order them correctly for composition
+          wrapper (->> (map #(if (keyword? %) (-> this % :middleware) %) middleware)
+                           ;; reverse get correct composition order
                            reverse
-                           ;; final wrap
                            (apply comp identity))]
-      (assoc this :app wrapped-app)))
+      (assoc this :app (wrapper app))))
   (stop [this] (dissoc this :app)))
 
 (defnk new-ring-handler
   "Creates a RingHandler component that will inject the postgres and redis"
   [handler    :- s/Any
-   {sentry-dsn :- (s/maybe s/Str) nil}
-   {injections :- [s/Keyword] []}]
+   {injections :- [s/Keyword] []}
+   {middleware :- [(s/either s/Keyword types/Fn)] []}]
   (map->RingHandler {:handler handler
-                     :sentry-dsn sentry-dsn
-                     :injections injections}))
+                     :injections injections
+                     :middleware middleware}))
 
 (defn stop-undertow!
   "Stops the undertow instance"
@@ -164,3 +173,31 @@
 (def accepted (partial ring-response 202))
 (def found (partial ring-response 302))
 (def not-found (partial ring-response 404))
+
+(comment
+
+  (ns foo)
+  (use 'curiosity.components.http)
+  (use 'clojure.tools.trace)
+  (require 'com.stuartsierra.component)
+  (trace-ns 'curiosity.components.http)
+  (use 'clojure.repl)
+
+  (defn wrap-printer-middleware
+    [handler n]
+    (fn [req]
+      (prn "printer-middleware: " n "request:" req)
+      (let [res (handler req)]
+        (prn "printer-middleware: " n " response: " res)
+        res)))
+
+  (defn hello-world-handler [req] {:status 200 :body "hello world"})
+  (def pikachu-middleware (com.stuartsierra.component/start
+                             (new-ring-middleware (fn [_ handler] (wrap-printer-middleware handler)))))
+  (def rh (assoc (new-ring-handler {:handler hello-world-handler :middleware [:pikachu]})
+                 :pikachu pikachu-middleware))
+  (def nrh (com.stuartsierra.component/start rh))
+  ((:app nrh) {:spam "eggs"})
+
+  )
+

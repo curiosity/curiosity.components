@@ -108,12 +108,12 @@
 
 (defmacro def-system-shortcuts
   "Defines create-system, start-system, stop-system, and jump-start in your namespace."
-  [project-name settings-schema settings-defaults]
+  []
   `(do
      (require 'curiosity.utils 'com.stuartsierra.component)
      (curiosity.utils/defalias ~'create-system curiosity.components.settings/create-system)
      (curiosity.utils/defalias ~'start-system com.stuartsierra.component/start-system)
      (curiosity.utils/defalias ~'stop-system com.stuartsierra.component/stop-system)
      (defn ~'jump-start
-       "Takes a system-factory (settings parameter) and returns the started system"
-       [~'system-factory] (-> ~'system-factory ~'create-system ~'start-system))))
+       "Takes a system as a map and creates then starts that system"
+       [~'system] (-> ~'system ~'create-system ~'start-system))))
