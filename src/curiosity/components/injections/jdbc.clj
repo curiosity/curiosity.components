@@ -12,7 +12,8 @@
 ;; setup JSON fields to automatically serialize-deserialize
 (defn value-to-json-pgobject [value]
   (doto (PGobject.)
-    (.setType "json")
+    ;; hack for now -- eventually we should properly determine the actual type
+    (.setType "jsonb")
     (.setValue (json/generate-string value))))
 
 (extend-protocol jdbc/ISQLValue
