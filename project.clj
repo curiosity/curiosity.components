@@ -55,6 +55,7 @@
 
                  ;; nrepl
                  [org.clojure/tools.nrepl "0.2.10"]
+                 [cider/cider-nrepl "0.10.0"]
 
                  ;; http
                  [javax.servlet/servlet-api "2.5"]

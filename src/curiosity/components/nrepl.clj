@@ -1,5 +1,6 @@
 (ns curiosity.components.nrepl
-  (:require [clojure.tools.nrepl.server :as nrepl-server]
+  (:require [cider.nrepl :refer [cider-nrepl-handler]]
+            [clojure.tools.nrepl.server :as nrepl-server]
             [com.stuartsierra.component :as component]
             [schema.core :as s]
             [plumbing.core :refer :all]))
@@ -12,7 +13,7 @@
   (start [this]
     (if instance
       this
-      (assoc this :instance (nrepl-server/start-server :port port))))
+      (assoc this :instance (nrepl-server/start-server :port port :handler cider-nrepl-handler))))
   (stop [this]
     (if instance
       (dissoc this :instance)
