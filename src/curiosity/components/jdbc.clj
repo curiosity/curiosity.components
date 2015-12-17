@@ -34,8 +34,11 @@
                  (.setJdbcUrl (format "jdbc:%s:%s" (:subprotocol spec) (:subname spec)))
                  (.setUser (:user spec))
                  (.setPassword (:password spec))
+                 (.setMaxPoolSize 30)
+                 (.setNumHelperThreads 10)
+                 (.setMaxConnectionAge (* 24 60 60))
                  (.setMaxIdleTimeExcessConnections (* 30 60))
-                 (.setMaxIdleTime (* 3 60 60)))})
+                 (.setMaxIdleTime (* 6 60 60)))})
 
 (s/defrecord PooledJDBC
   [db-spec :- types/Map
