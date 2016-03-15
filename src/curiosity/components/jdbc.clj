@@ -105,7 +105,7 @@
                           {:username (let [u (:user spec)]
                                        (when-not (empty? u)
                                          u))
-                           :password (let [p (:pass spec)]
+                           :password (let [p (:password spec)]
                                        (when-not (empty? p)
                                          p))
                            :data-source-class-name (-> spec :extra :data-source-class-name)
