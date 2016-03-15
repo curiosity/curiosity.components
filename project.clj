@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.4.0"
+(defproject curiosity.components "0.5.0-SNAPSHOT"
   :description "FIXME: write description"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
@@ -9,11 +9,11 @@
                         :username :env/aws_access_key
                         :passphrase :env/aws_secret_key}]]
   :plugins [[s3-wagon-private "1.1.2"]]
-  :dependencies [[org.clojure/clojure "1.7.0"]
-                 [prismatic/plumbing "0.4.4"]
-                 [prismatic/schema "0.4.3"]
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [prismatic/plumbing "0.5.2"]
+                 [prismatic/schema "1.0.4"]
                  [com.taoensso/encore "2.19.0"]
-                 [curiosity.utils "0.5.0" :exclusions [com.taoensso/encore]]
+                 [curiosity.utils "0.7.0" :exclusions [com.taoensso/encore]]
                  [environ "1.0.0"]
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  [com.emidln/destructured-component "0.3.0"]
@@ -24,12 +24,12 @@
                  ; DateTime
                  [joda-time/joda-time "2.5"]
                  ; JSON
-                 [cheshire "5.4.0"]
+                 [cheshire "5.5.0"]
 
                  ;; metrics component
-                 [metrics-clojure "2.5.1"]
-                 [metrics-clojure-jvm "2.5.1"]
-                 [metrics-clojure-ring "2.5.1"]
+                 [metrics-clojure "2.6.1"]
+                 [metrics-clojure-jvm "2.6.1"]
+                 [metrics-clojure-ring "2.6.1"]
 
                  ;; s3 and sqs
                  [com.amazonaws/aws-java-sdk "1.9.36"]
@@ -49,13 +49,14 @@
                  ;; postgresql
                  [org.clojure/java.jdbc "0.3.6"]
                  ; postgresql driver
-                 [org.postgresql/postgresql "9.4-1201-jdbc41"]
+                 [org.postgresql/postgresql "9.4-1206-jdbc41"]
                  ; connection pooling
-                 [com.mchange/c3p0 "0.9.5"]
+                 ;[com.mchange/c3p0 "0.9.5"]
+                 [com.zaxxer/HikariCP-java6 "2.3.13"]
 
                  ;; nrepl
                  [org.clojure/tools.nrepl "0.2.10"]
-                 [cider/cider-nrepl "0.10.0"]
+                 [cider/cider-nrepl "0.11.0"]
 
                  ;; http
                  [javax.servlet/servlet-api "2.5"]
