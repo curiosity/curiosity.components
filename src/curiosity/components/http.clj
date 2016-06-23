@@ -1,6 +1,8 @@
 (ns curiosity.components.http
   (:require [com.stuartsierra.component :as component]
             [ring.adapter.undertow :refer [run-undertow]]
+            immutant.web
+            immutant.web.undertow
             [ring.middleware.format-response :refer [wrap-restful-response]]
             [schema.core :as s]
             [plumbing.core :refer :all]
@@ -80,7 +82,6 @@
                   (handler (if (empty? injectables)
                              req
                              (apply assoc req (apply concat injectables))))))
-
                            ;; resolve the middleware
           wrapper (->> (map #(if (keyword? %) (-> this % :middleware) %) middleware)
                            ;; reverse get correct composition order
@@ -98,48 +99,32 @@
                      :injections injections
                      :middleware middleware}))
 
-(defn stop-undertow!
-  "Stops the undertow instance"
-  [ut]
-  (try
-    (.stop ut)
-    (catch NullPointerException _)))
-
 (s/defrecord WebServer
-  [server         :- types/Fn
-   ip             :- s/Str
-   port           :- s/Int
-   app            :- RingHandler
-   io-threads     :- s/Int
-   worker-threads :- s/Int
-   dispatch?      :- s/Bool]
+  [server             :- (s/pred map?)
+   ip                 :- s/Str
+   port               :- s/Int
+   app                :- RingHandler
+   options            :- (s/pred map?)]
 
   component/Lifecycle
   (start [this]
     (if server
       this
-      (let [nserver (run-undertow (:app app)
-                                  {:port port
-                                   :host ip
-                                   :io-threads io-threads
-                                   :worker-threads worker-threads
-                                   :dispatch? dispatch?})]
-        (assoc this :server nserver))))
+      (assoc this :server (immutant.web/run (:app app)
+                            (immutant.web.undertow/options (merge {:port port
+                                                          :host ip}
+                                                         options))))))
   (stop [this]
-    (stop-undertow! server)
-    (dissoc this :server)))
+    (when server
+      (immutant.web/stop server))
+    (assoc this :server nil)))
 
 (defnk new-web-server
-  "Creates an HTTP-Kit component with an injectable ring handler"
+  "Creates an Undertow.io component with an injectable ring handler"
   [{port           :- s/Int           8080}
    {ip             :- s/Str           "127.0.0.1"}
-   {io-threads     :- (s/maybe s/Int) nil}
-   {worker-threads :- (s/maybe s/Int) nil}
-   {dispatch?      :- s/Bool          true}]
-  (map->WebServer (merge {:ip ip :port port :dispatch? dispatch?}
-                         (remove (comp nil? second)
-                                 {:io-threads io-threads
-                                  :worker-threads worker-threads}))))
+   {options        :- (s/pred map?)   {}}]
+  (map->WebServer {:ip ip :port port :options options}))
 
 (defn wrap-slingshot-response
   "Catches slingshot-responses and renders them appropriately"
