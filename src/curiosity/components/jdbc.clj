@@ -1,10 +1,14 @@
 (ns curiosity.components.jdbc
+  (:refer-clojure :exclude [cast])
   (:require [com.stuartsierra.component :as component]
             [clojure.string :as str]
             [schema.core :as s]
             [curiosity.components.types :as types]
             [plumbing.core :refer :all]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [curiosity.utils :refer [when-seq-let]]
+            [honeysql.core :as honey :refer [call]]
+            [clojure.java.jdbc :as jdbc])
   (:import [com.zaxxer.hikari HikariConfig HikariDataSource]
            java.net.URI
            java.sql.Connection
@@ -123,7 +127,6 @@
 
 (defn new-hikari-cp-config
   [m]
-  (prn m)
   (let [config (doto (HikariConfig.)
                  (.setUsername (:username m))
                  (.setPassword (:password m))
@@ -182,8 +185,8 @@
                  :opts opts)))))
   (stop [this]
     (when datasource
-      (.close datasource)
-    (dissoc this :datasource))))
+      (.close datasource))
+    (assoc this :datasource nil)))
 
 (s/defn new-pooled-jdbc-uri
   "Creates a new hikari-cp-pooled postgresql jdbc connection from a db-uri"
@@ -198,3 +201,36 @@
    (map->PooledJDBC {}))
   ([opts :- types/Map]
    (map->PooledJDBC {:opts opts})))
+
+
+(defn snake-case
+  "Foo-bar -> foo_bar"
+  [s]
+  (-> s str/lower-case (str/replace "-" "_")))
+
+(defn kebob-case
+  "Foo_Bar -> foo-bar"
+  [s]
+  (-> s str/lower-case (str/replace "_" "-")))
+
+(defn cast
+  "CAST()"
+  [type field]
+  (call :cast field type))
+
+(s/defn honey-jdbc-runner :- (s/maybe [s/Any])
+  "Returns a vector of results given a db-component and a built honeysql map.
+  Takes a jdbc-fn implementation and feeds the db-component and the generated sql vec from query-map to it"
+  [jdbc-fn db-component query-map]
+  (when-seq-let [results (->> (honey/format query-map :quoting :ansi)
+                              (jdbc-fn db-component))]
+                (vec results)))
+
+(def query-runner
+  "Given a db-component and a query-map, query using the query-map returning a vector or nil"
+  (partial honey-jdbc-runner #(jdbc/query %1 %2 :identifiers kebob-case)))
+
+(def exec-runner
+  "Given a db-component and a query-map, execute the query-map returning a vector or nil"
+  (partial honey-jdbc-runner jdbc/execute!))
+
