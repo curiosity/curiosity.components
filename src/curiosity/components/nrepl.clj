@@ -15,9 +15,8 @@
       this
       (assoc this :instance (nrepl-server/start-server :port port :handler cider-nrepl-handler))))
   (stop [this]
-    (if instance
-      (dissoc this :instance)
-      this)))
+    ;; Don't do anything. We can't stop nrepl because that's how we run commands.
+    this))
 
 (s/defn new-nrepl-server
   ([]
