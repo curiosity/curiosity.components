@@ -43,7 +43,7 @@
   []
   (merge
     ;; These are technically private. I don't care.
-    (#'environ/read-env-file)
+    (#'environ/read-env-file ".lein-env")
     (#'environ/read-system-env)
     (#'environ/read-system-props)))
 
