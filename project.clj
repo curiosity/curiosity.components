@@ -10,29 +10,29 @@
                         :passphrase :env/aws_secret_key}]]
   :plugins [[s3-wagon-private "1.1.2"]]
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [prismatic/plumbing "0.5.2"]
-                 [prismatic/schema "1.0.4"]
-                 [com.taoensso/encore "2.19.0"]
-                 [curiosity.utils "0.7.0" :exclusions [com.taoensso/encore]]
-                 [environ "1.0.0"]
-                 [org.clojure/core.async "0.1.346.0-17112a-alpha"]
+                 [prismatic/plumbing "0.5.3"]
+                 [prismatic/schema "1.1.2"]
+                 [com.taoensso/encore "2.58.0"]
+                 [curiosity.utils "0.8.0" :exclusions [com.taoensso/encore]]
+                 [environ "1.0.3"]
+                 [org.clojure/core.async "0.2.385"]
                  [com.emidln/destructured-component "0.3.0"]
                  [slingshot "0.12.2"]
                  [org.clojure/tools.logging "0.3.1"]
 
                  ;; serialization
                  ; DateTime
-                 [joda-time/joda-time "2.5"]
+                 [joda-time/joda-time "2.9.4"]
                  ; JSON
-                 [cheshire "5.5.0"]
+                 [cheshire "5.6.2"]
 
                  ;; metrics component
-                 [metrics-clojure "2.6.1"]
-                 [metrics-clojure-jvm "2.6.1"]
-                 [metrics-clojure-ring "2.6.1"]
+                 [metrics-clojure "2.7.0"]
+                 [metrics-clojure-jvm "2.7.0"]
+                 [metrics-clojure-ring "2.7.0"]
 
                  ;; s3 and sqs
-                 [com.amazonaws/aws-java-sdk "1.9.36"]
+                 [com.amazonaws/aws-java-sdk "1.11.9"]
 
                  ; communicate with s3
                  [com.curiosity/clj-aws-s3 "0.4.0" :exclusions [joda-time com.fasterxml.jackson.core/jackson-annotations]]
@@ -40,37 +40,38 @@
                  [com.cemerick/bandalore "0.0.6" :exclusions [joda-time/joda-time]]
 
                  ;; elasticsearch
-                 [clojurewerkz/elastisch "2.2.0-beta4"]
+                 [clojurewerkz/elastisch "2.2.1"]
 
                  ;; redis
                  [com.curiosity/crache "1.0.0-rc3" :exclusions [com.taoensso/carmine]]
-                 [com.taoensso/carmine "2.12.0"]
+                 [com.taoensso/carmine "2.13.1"]
 
                  ;; postgresql
                  [org.clojure/java.jdbc "0.3.6"]
                  ; postgresql driver
-                 [org.postgresql/postgresql "9.4-1206-jdbc41"]
+                 [org.postgresql/postgresql "9.4.1208"]
                  ; connection pooling
                  ;[com.mchange/c3p0 "0.9.5"]
                  [com.zaxxer/HikariCP-java6 "2.3.13"]
 
                  ;; nrepl
-                 [org.clojure/tools.nrepl "0.2.10"]
-                 [cider/cider-nrepl "0.11.0"]
+                 [org.clojure/tools.nrepl "0.2.12"]
+                 [cider/cider-nrepl "0.13.0-SNAPSHOT"]
 
                  ;; http
                  [javax.servlet/servlet-api "2.5"]
-                 [ring "1.4.0"]
-                 [ring/ring-codec "1.0.0"]
-                 [ring/ring-headers "0.1.3"]
-                 [ring/ring-defaults "0.1.5"]
-                 [ring-middleware-format "0.6.0"]
+                 [ring "1.5.0"]
+                 [ring/ring-codec "1.0.1"]
+                 [ring/ring-headers "0.2.0"]
+                 [ring/ring-defaults "0.2.1"]
+                 [ring-middleware-format "0.7.0"]
                  [jumblerg/ring.middleware.cors "1.0.1"]
                  [ring-basic-authentication "1.0.5"]
                  [ring-undertow-adapter "0.2.2"]
+                 [org.immutant/web  "2.1.4"]
                  [io.undertow/undertow-core "1.2.0.Beta4"]
 
                  ;; http error reporting
-                 [raven-clj "1.3.1"]
+                 [raven-clj "1.4.2"]
 
                  ])
