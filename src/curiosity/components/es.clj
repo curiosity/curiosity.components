@@ -20,7 +20,7 @@
       (assoc this :client (esr/connect es-uri))
       (assoc this :client {:connection-manager connection-manager})))
   (stop [this]
-    (dissoc this :client)))
+    (assoc this :client nil)))
 
 (defnk new-elasticsearch-client
   [es-uri :- s/Str

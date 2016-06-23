@@ -28,9 +28,7 @@
                      (get this d)))]
         (assoc this :middleware (fn [handler] (middleware-fn deps handler))))))
   (stop [this]
-    (if middleware
-      (dissoc this :middleware)
-      this)))
+    (assoc this :middleware nil)))
 
 (defn new-ring-middleware
   "Creates a RingMiddleware"
@@ -88,7 +86,8 @@
                            reverse
                            (apply comp identity))]
       (assoc this :app (wrapper app))))
-  (stop [this] (dissoc this :app)))
+  (stop [this]
+    (assoc this :app nil)))
 
 (defnk new-ring-handler
   "Creates a RingHandler component that will inject the postgres and redis"

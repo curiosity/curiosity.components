@@ -28,7 +28,7 @@
     (assoc this :conn-opts {:pool {}
                             :spec {:uri redis-uri}}))
   (stop [this]
-    (dissoc this :conn-opts)))
+    (assoc this :conn-opts nil)))
 
 (s/defn new-redis
   ([]

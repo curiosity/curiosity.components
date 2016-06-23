@@ -63,7 +63,7 @@
       (enable-dead-letter-queue! client q dlq max-retries)
       (assoc this :client client :queue q :dead-letter-queue dlq)))
   (stop [this]
-    (dissoc this :client :queue :dead-letter-queue)))
+    (assoc this :client nil :queue nil :dead-letter-queue nil)))
 
 (defnk new-sqs-conn-pool :- SQSConnPool
   "Creates a new SQSConnPool component"
@@ -182,7 +182,7 @@
                   :acks acks
                   :fails fails)))
   (stop [this]
-    (dissoc this :messages :acks :fails)))
+    (assoc this :messages nil :acks nil :fails nil)))
 
 (defnk new-sqs-reader :- SQSAsyncQueueReader
   "Constructs a new SQSAsyncReader component. The system will inject the sqs-conn you need."

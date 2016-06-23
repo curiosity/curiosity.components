@@ -13,9 +13,7 @@
         (instrument-jvm r)
         (assoc this :registry r))))
   (stop [this]
-    (if registry
-      (dissoc this :registry)
-      this)))
+    (assoc this :registry nil)))
 
 (defn new-metrics []
   (map->Metrics {}))
