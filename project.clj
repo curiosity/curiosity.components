@@ -51,8 +51,8 @@
                  ; postgresql driver
                  [org.postgresql/postgresql "9.4.1208"]
                  ; connection pooling
-                 ;[com.mchange/c3p0 "0.9.5"]
                  [com.zaxxer/HikariCP-java6 "2.3.13"]
+                 [honeysql "0.6.3"]
 
                  ;; nrepl
                  [org.clojure/tools.nrepl "0.2.12"]
