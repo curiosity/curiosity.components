@@ -8,7 +8,8 @@
             [clojure.set :as set]
             [curiosity.utils :refer [when-seq-let]]
             [honeysql.core :as honey :refer [call]]
-            [clojure.java.jdbc :as jdbc])
+            [clojure.java.jdbc :as jdbc]
+            [taoensso.timbre :as log])
   (:import [com.zaxxer.hikari HikariConfig HikariDataSource]
            java.net.URI
            java.sql.Connection
@@ -169,7 +170,7 @@
 (s/defrecord PooledJDBC
     [db-uri :- (s/maybe s/Str)
      opts :- (s/maybe types/Map)
-     datasource :- (s/maybe com.zaxxer.hikari.HikariDataSource)] 
+     datasource :- (s/maybe com.zaxxer.hikari.HikariDataSource)]
 
   component/Lifecycle
   (start [this]
@@ -218,11 +219,25 @@
   [type field]
   (call :cast field type))
 
+(def ^:dynamic *jdbc-log-level* nil)
+
+(defmacro with-query-logged
+  [level & body]
+  `(with-bindings {*jdbc-log-level* ~level}
+    (do ~@body)))
+
+(defn query-logger
+  [q]
+  (when-let [level *jdbc-log-level*]
+    (log/spy level q))
+  q)
+
 (s/defn honey-jdbc-runner :- (s/maybe [s/Any])
   "Returns a vector of results given a db-component and a built honeysql map.
   Takes a jdbc-fn implementation and feeds the db-component and the generated sql vec from query-map to it"
   [jdbc-fn db-component query-map]
   (when-seq-let [results (->> (honey/format query-map :quoting :ansi)
+                              query-logger
                               (jdbc-fn db-component))]
                 (vec results)))
 
