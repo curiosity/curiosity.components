@@ -8,7 +8,8 @@
             [clojure.set :as set]
             [curiosity.utils :refer [when-seq-let]]
             [honeysql.core :as honey :refer [call]]
-            [clojure.java.jdbc :as jdbc])
+            [clojure.java.jdbc :as jdbc]
+            [taoensso.timbre :as log])
   (:import [com.zaxxer.hikari HikariConfig HikariDataSource]
            java.net.URI
            java.sql.Connection
@@ -169,7 +170,7 @@
 (s/defrecord PooledJDBC
     [db-uri :- (s/maybe s/Str)
      opts :- (s/maybe types/Map)
-     datasource :- (s/maybe com.zaxxer.hikari.HikariDataSource)] 
+     datasource :- (s/maybe com.zaxxer.hikari.HikariDataSource)]
 
   component/Lifecycle
   (start [this]
@@ -218,19 +219,44 @@
   [type field]
   (call :cast field type))
 
+(def ^:dynamic *jdbc-log-level*
+  "Log Level at which to print honey-jdbc-runner queries. nil is off."
+  nil)
+
+(defmacro with-query-logged
+  {:arglists '[[& body]
+               [log-level & body]]
+   :doc "Runs the body with queries logged at log-level (default :error)"}
+  [& body]
+  (let [[car & cdr] body
+        log-level (if (keyword? car) car :error)
+        query (if (keyword? car) cdr body)]
+    `(binding [~'curiosity.components.jdbc/*jdbc-log-level* ~log-level]
+       (do ~@query))))
+
+(defn query-logger
+  "Helper to spy on honeysql queries at a particular level defined by *jdbc-log-level*"
+  [q]
+  (when-let [level *jdbc-log-level*]
+    (log/spy level q))
+  q)
+
 (s/defn honey-jdbc-runner :- (s/maybe [s/Any])
   "Returns a vector of results given a db-component and a built honeysql map.
   Takes a jdbc-fn implementation and feeds the db-component and the generated sql vec from query-map to it"
   [jdbc-fn db-component query-map]
   (when-seq-let [results (->> (honey/format query-map :quoting :ansi)
+                              query-logger
                               (jdbc-fn db-component))]
                 (vec results)))
 
-(def query-runner
+(def ^{:arglists '[[db-conn honeysql-map]]}
+  query-runner
   "Given a db-component and a query-map, query using the query-map returning a vector or nil"
   (partial honey-jdbc-runner #(jdbc/query %1 %2 :identifiers kebob-case)))
 
-(def exec-runner
+(def ^{:arglists '[[db-conn honeysql-map]]}
+  exec-runner
   "Given a db-component and a query-map, execute the query-map returning a vector or nil"
   (partial honey-jdbc-runner jdbc/execute!))
 
