@@ -7,7 +7,9 @@
             curiosity.components.injections.json)
   (:import org.joda.time.DateTime
            org.postgresql.util.PGobject
-           org.postgresql.jdbc4.Jdbc4Array))
+           java.sql.Array
+           java.sql.Date
+           java.sql.Timestamp))
 
 ;; setup JSON fields to automatically serialize-deserialize
 (defn value-to-json-pgobject [value]
@@ -41,7 +43,7 @@
         "json" (json/parse-string value true)
         value)))
 
-  org.postgresql.jdbc4.Jdbc4Array
+  java.sql.Array
   (result-set-read-column [obj result-meta idx]
     (vec (.getArray obj)))
 

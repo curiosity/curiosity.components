@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.5.0-SNAPSHOT"
+(defproject curiosity.components "0.5.0"
   :description "FIXME: write description"
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
@@ -52,7 +52,7 @@
                  [org.postgresql/postgresql "9.4.1209"]
                  ; connection pooling
                  [com.zaxxer/HikariCP-java6 "2.3.13"]
-                 [honeysql "0.6.3"]
+                 [honeysql "0.7.0"]
 
                  ;; nrepl
                  [org.clojure/tools.nrepl "0.2.12"]
