@@ -49,7 +49,7 @@
                  ;; postgresql
                  [org.clojure/java.jdbc "0.3.6"]
                  ; postgresql driver
-                 [org.postgresql/postgresql "9.4.1208"]
+                 [org.postgresql/postgresql "9.4.1209"]
                  ; connection pooling
                  [com.zaxxer/HikariCP-java6 "2.3.13"]
                  [honeysql "0.6.3"]
