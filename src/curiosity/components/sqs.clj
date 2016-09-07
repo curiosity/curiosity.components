@@ -7,7 +7,7 @@
             [cheshire.core :as json]
             [taoensso.timbre :as log]
             [com.stuartsierra.component :as component]
-            [clojure.core.async :as async :refer [go thread chan <! <!! >!! go-loop timeout]]
+            [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop timeout close! alts!]]
             [clojure.core.async.impl.protocols :refer [ReadPort WritePort Channel]]
             [clj-time.core :as t]
             [curiosity.components.rate-limit :as rl])
@@ -249,7 +249,9 @@
 
 (defprotocol SQSSend
   (send! [this message]
-    "Puts a message onto the SQS queue"))
+    "Puts a message onto the SQS queue, blocking a goroutine")
+  (send!! [this message]
+    "Puts a message onto the SQS queue, blocking a thread"))
 
 (defnk sqs-async-sender
   [sqs-conn         :- SQSConnPool
@@ -260,7 +262,7 @@
   (let [messages (chan max-buffer-size)]
     (thread
       (loop []
-        (let [{:keys [type message] :as msg} (<!! messages)
+        (let [{:keys [::type ::message] :as msg} (<!! messages)
               retries (or (:retries msg) 0)]
           (condp = type
             ;; given send, send a message
@@ -289,9 +291,16 @@
 (defn send!*
   "Send a message via async-sender-chan"
   [async-sender-chan message]
+  (>! async-sender-chan
+      {::type ::send
+       ::message message}))
+
+(defn send!!*
+  "Send a message via async-sender-chan"
+  [async-sender-chan message]
   (>!! async-sender-chan
-       {:type ::send
-        :message message}))
+       {::type ::send
+        ::message message}))
 
 (s/defn shutdown-sender!
   "Signals to the async sender to shutdown"
@@ -314,13 +323,15 @@
 
   SQSSend
   (send! [this message]
-    (send!* messages message)))
+    (send!* messages message))
+  (send!! [this message]
+    (send!!* messages message)))
 
-(s/defn new-sqs-async-sender :- SQSAsyncSender
+(s/defn new-sqs-sender :- SQSAsyncSender
   "Create a new sqs sender component.
    At 0 and 1 arities, expects the sqs-conn to be injected."
   ([]
-   (new-sqs-async-sender json/generate-string))
+   (new-sqs-sender json/generate-string))
   ([serializer :- s/Any]
    (map->SQSAsyncSender {:serializer serializer}))
   ([sqs-conn :- SQSConnPool
@@ -363,7 +374,8 @@
    f          :- (s/pred fn?)
    period     :- s/Int
    rate-limit :- s/Int
-   partitions :- s/Int]
+   partitions :- s/Int
+   stop-chan  :- (s/protocol ReadPort)]
   ;; f has the signature [Msgs] -> [Bool]
   (let [wrapper (fn [work]
                   (thread
@@ -378,16 +390,56 @@
                                           :limit rate-limit
                                           :partitions partitions})]
         (go-loop []
-          (let [messages (vec (<!! c))
-                results (<! (wrapper (map second messages)))]
-            (doall
-             (map-indexed (fn [idx x]
-                            (if x
-                              (>!! (:acks reader) (messages idx))
-                              (>!! (:fails reader) (messages idx))))
-                          results)))
-          (recur)))
+          (let [[v ch] (alts! [c stop-chan])]
+            (if (= ch stop-chan)
+              ::finished
+              (let [messages (vec v)
+                    results (<! (wrapper (map second messages)))]
+                (doall
+                 (map-indexed (fn [idx x]
+                                (if x
+                                  (>! (:acks reader) (messages idx))
+                                  (>! (:fails reader) (messages idx))))
+                              results))
+                (recur))))))
       ::started)))
+
+(defnk auto-failer*
+  [reader :- SQSAsyncQueueReader
+   stop-chan :- (s/protocol WritePort)]
+  (go-loop []
+    (let [[msg ch] (alts! [(:messages reader) stop-chan])]
+      (if (= ch stop-chan)
+        ::finished
+        (do
+          (let [[receipt _] msg]
+            (>! (:fails reader) receipt)
+            (recur)))))))
+
+
+(s/defrecord SQSAutoFailer
+    [reader :- SQSAsyncQueueReader
+     failer :- (s/protocol ReadPort)
+     stop-chan :- (s/protocol WritePort)]
+
+  component/Lifecycle
+  (start [this]
+    (if failer
+      this
+      (let [stop-chan (chan 1)]
+        (assoc this
+               :failer (auto-failer* {:reader reader :stop-chan stop-chan})
+               :stop-chan stop-chan))))
+  (stop [this]
+    (if failer
+      (do
+        (>!! stop-chan ::stop)
+        (assoc this :failer nil :stop-chan nil))
+      this)))
+
+(defnk new-auto-failer
+  [reader :- SQSAsyncQueueReader]
+  (->SQSAutoFailer reader nil nil))
 
 (comment
 

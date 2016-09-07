@@ -1,11 +1,15 @@
 (ns curiosity.components.build-info
-  (:require [cheshire.core :as json]
-            [clj-time.core :as t]
-            [clj-time.format :as tf]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
-            [clojure.string :as str]
-            [plumbing.core :refer [map-keys]]))
+            [clojure.string :as str])
+  (:import java.text.SimpleDateFormat
+           java.util.TimeZone
+           java.util.Date))
+
+(defn map-keys
+  [f m]
+  (->> (map (fn [[k v]] [(f k) v]) m)
+       (into {})))
 
 ;; shell utility library
 (def exec-str
@@ -41,7 +45,9 @@
 
 (defn now-iso-str
   []
-  (tf/unparse (tf/formatters :date-time) (t/now)))
+  (-> (doto (SimpleDateFormat. "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+        (.setTimeZone (TimeZone/getTimeZone "UTC")))
+      (.format (Date.))))
 
 ;; This isn't good enough if we want to try to resolve dependency issues. For that, we'll need to
 ;; depend on leiningen so we can let it merge it maps with its own logic.
@@ -67,26 +73,26 @@
 
 (defmacro write-build-info
   [path]
-  `(with-open [out# (io/writer ~path)]
-     (json/generate-stream ~(build-info) out#)))
+  `(spit ~path ~(build-info)))
 
-(def BUILD_INFO_PATH "src/build_info.json")
-(def BUILD_INFO_RESOURCE_PATH "build_info.json")
+(def BUILD_INFO_PATH "src/build_info.edn")
+(def BUILD_INFO_RESOURCE_PATH "build_info.edn")
 
 (def with-lein? #(contains? (System/getenv) "LEIN_VERSION"))
 
-(defn read-build-info-from-json
+(defn read-build-info-from-edn
   [path]
-  (with-open [in (-> path io/resource io/reader)]
-    (json/parse-stream in)))
+  (-> path io/resource slurp read-string))
 
 (if (with-lein?)
   (do
     (write-build-info BUILD_INFO_PATH)
     (def read-build-info build-info))
   (def read-build-info
-    (memoize (comp (partial map-keys keyword)
-                   (partial read-build-info-from-json BUILD_INFO_RESOURCE_PATH)))))
+    ;; close over the value so we don't lose if if our jar is swapped from under us
+    (let [data (->> (read-build-info-from-edn BUILD_INFO_RESOURCE_PATH)
+                    (map-keys keyword))]
+      (fn [] data))))
 
 
 (comment

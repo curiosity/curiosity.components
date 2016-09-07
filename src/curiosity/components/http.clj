@@ -9,6 +9,7 @@
             [raven-clj.ring :as raven-ring]
             [curiosity.components.types :as types]
             [slingshot.slingshot :refer [try+ throw+]]
+            [taoensso.timbre :as log]
             metrics.ring.instrument
             metrics.ring.expose))
 
@@ -75,17 +76,21 @@
 
   component/Lifecycle
   (start [this]
-    (let [app (fn [req]
-                (let [injectables (select-keys this injections)]
-                  (handler (if (empty? injectables)
-                             req
-                             (apply assoc req (apply concat injectables))))))
-                           ;; resolve the middleware
-          wrapper (->> (map #(if (keyword? %) (-> this % :middleware) %) middleware)
-                           ;; reverse get correct composition order
-                           reverse
-                           (apply comp identity))]
-      (assoc this :app (wrapper app))))
+    (log/log-errors
+     (let [app (fn [req]
+                 (let [injectables (select-keys this injections)]
+                   (handler (if (empty? injectables)
+                              req
+                              (apply assoc req (apply concat injectables))))))
+           ;; resolve the middleware
+           _ (log/info "middleware is: " middleware)
+           _ (log/info "keys on self: " (keys this))
+           wrapper (->> (map #(log/spy :error % (if (keyword? %) (-> this % :middleware) %)) middleware)
+                        ;; reverse get correct composition order
+                        reverse
+                        (map #(do (log/info %) %))
+                        (apply comp identity))]
+       (assoc this :app (wrapper app)))))
   (stop [this]
     (assoc this :app nil)))
 
@@ -107,12 +112,13 @@
 
   component/Lifecycle
   (start [this]
-    (if server
-      this
-      (assoc this :server (immutant.web/run (:app app)
-                            (immutant.web.undertow/options (merge {:port port
-                                                          :host ip}
-                                                         options))))))
+    (log/log-errors
+     (if server
+       this
+       (assoc this :server (immutant.web/run (:app app)
+                             (immutant.web.undertow/options (merge {:port port
+                                                                    :host ip}
+                                                                   options)))))))
   (stop [this]
     (when server
       (immutant.web/stop server))
