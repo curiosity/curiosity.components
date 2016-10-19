@@ -1,8 +1,8 @@
 (defproject curiosity.components "0.6.0-SNAPSHOT"
-  :description "FIXME: write description"
-  :url "http://example.com/FIXME"
-  :license {:name "Eclipse Public License"
-            :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :description "Curiosity.com components. Proprietary. Do not distribute."
+  :url "http://github.com/curiosity/curiosity.components"
+  :license {:name "Proprietary. Do not distribute."
+            :url "https://curiosity.com/"}
   :jvm-optons ["-Xmx1G"]
   :repl-options {:timeout 120000}
   :repositories [["s3" {:url "s3p://curiosity-java-jars-private/jars/"
