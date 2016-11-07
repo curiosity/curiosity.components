@@ -184,7 +184,7 @@
         inline-clock-unit (if inline-clock-ms
                             (go-loop []
                               (<! (timeout inline-clock-ms))
-                              (>!! tuple-chan [::clock (millis)])
+                              (>! tuple-chan [::clock (millis)])
                               (if (poll! inline-clock-stop-chan)
                                 ::finished
                                 (recur)))
@@ -195,7 +195,7 @@
                        (swap! clock-chan (chan))
                        (go-loop []
                          (<! (timeout clock-ms))
-                         (>!! @clock-chan [::clock (millis)])
+                         (>! @clock-chan [::clock (millis)])
                          (if (poll! clock-stop-chan)
                            (do
                              (close! @clock-chan)
