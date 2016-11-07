@@ -211,7 +211,7 @@
                            ;; signal to cleanup
                            (and
                             (= ch @bounded-chan)
-                            (= ch stop-chan))
+                            (= ch ack-stop-chan))
                            (do
                              (reset! bounded-chan (timeout stop-wait-ms))
                              (recur))
@@ -230,7 +230,7 @@
                                   (log/error "Failed to ack a message!" (assoc &throw-context :queue sqs-queue)))))
                              (recur)))))))
         ;; slurp messages from fail-chan and mark them visible on sqs
-        stop-unit (go
+        fail-unit (go
                     (let [bounded-chan (atom fail-stop-chan)]
                       (loop []
                         (let [[msg ch] (alts! [@bounded-chan fail-chan])]
@@ -238,7 +238,7 @@
                             ;; signal to cleanup
                             (and
                              (= ch @bounded-chan)
-                             (= ch stop-chan))
+                             (= ch fail-stop-chan))
                             (do
                               (reset! bounded-chan (timeout stop-wait-ms))
                               (recur))
@@ -268,6 +268,7 @@
              :inline-clock inline-clock-unit
              :clock clock-unit
              :acks ack-unit
+             :fails fail-unit
              :stop stop-unit}}))
 
 
