@@ -7,7 +7,7 @@
             [cheshire.core :as json]
             [taoensso.timbre :as log]
             [com.stuartsierra.component :as component]
-            [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop timeout close! alts!]]
+            [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop timeout close! alts! poll!]]
             [clojure.core.async.impl.protocols :refer [ReadPort WritePort Channel]]
             [clj-time.core :as t]
             [curiosity.components.rate-limit :as rl])
@@ -42,11 +42,21 @@
                           {"maxReceiveCount" (str max-count)
                            "deadLetterTargetArn" (queue-arn client to-queue)})}))
 
+(s/defrecord AsyncQueueReaderUnits
+  [messages     :- (s/protocol ReadPort)
+   inline-clock :- (s/protocol ReadPort)
+   clock        :- (s/protocol ReadPort)
+   acks         :- (s/protocol ReadPort)
+   fails        :- (s/protocol ReadPort)
+   stop         :- (s/protocol ReadPort)])
+
 (s/defrecord AsyncQueueReader
   [messages :- (s/protocol ReadPort)
    acks     :- (s/protocol WritePort)
    fails    :- (s/protocol WritePort)
-   clock    :- (s/protocol ReadPort)])
+   clock    :- (s/protocol ReadPort)
+   stop     :- (s/protocol WritePort)
+   units    :- AsyncQueueReaderUnits])
 
 (s/defrecord SQSConnPool
   [access-key             :- s/Str
@@ -90,15 +100,12 @@
     (close! c)
     c))
 
-;; This has issues in terms of leaking threads on Clojure 1.5 in the REPL (i.e. when creating
-;; threads with channels, then discarding them when the system is re-initialized). This is
-;; fixed with better channel usage detection and garbage collection in 1.6. This isn't the world
-;; we live in though... In prod, this has no effect, as we don't constantly create/delete systems in
-;; the same process.
 (defnk sqs-async-reader :- AsyncQueueReader
   "Returns a channel that will have messages [msg-id msg] on it, a channel where you can
-   ack messages given the id returned from the message channel, and a channel where you
-   can fail messages given the id returned from the message channel."
+   ack messages given the id returned from the message channel, a channel where you
+   can fail messages given the id returned from the message channel, and a channel that
+   when written to, stops all of the threads/goroutines after stop-wait-ms+25 milliseconds.
+  The final result of a thread chan be checked via the :units maps of channels."
   [sqs-conn         :- SQSConnPool
    {max-waiting     :- s/Int 40}
    {wait-time       :- s/Int 1}
@@ -108,89 +115,160 @@
    {deserializer    :- s/Any json/parse-string}
    {disable-reads?  :- s/Bool false}
    {inline-clock-ms :- (s/maybe s/Int) nil}
-   {clock-ms        :- (s/maybe s/Int) nil}]
-
+   {clock-ms        :- (s/maybe s/Int) nil}
+   {stop-wait-ms    :- s/Int 5000}]
   (let [tuple-chan (chan max-waiting)
         ack-chan   (chan)
         fail-chan  (chan)
         clock-chan (atom (closed-chan))
+        stop-chan (chan 1)
+        tuple-stop-chan (chan 1)
+        ack-stop-chan (chan 1)
+        fail-stop-chan (chan 1)
+        inline-clock-stop-chan (chan 1)
+        clock-stop-chan (chan 1)
         sqs-client (:client sqs-conn)
-        sqs-queue  (:queue sqs-conn)]
-    (do
-      (if disable-reads?
-        ;; disable reads by closing the chan, will provide nil
-        (async/close! tuple-chan)
-        ;; slurp messages from sqs and put them onto tuple-chan
-        (thread
-          (loop []
-            ;; slurp messages from sqs
-            (let [msgs (sqs/receive sqs-client
-                                    sqs-queue
-                                    :limit (min 10 max-waiting)
-                                    :visibility visibility-time
-                                    :wait-time-seconds wait-time)
-                  num-messages (count msgs)]
-              ;; try to deserialize each message and put it on tuple-chan
-              (doseq [msg msgs]
-                (try+
-                  ;; do not attempt string->keyword translation during deserialization
-                  ;; there are active attacks on this and it's uacceptable with arbitary
-                  ;; input due to implementation deficiencies in clojure's reader
-                  (>!! tuple-chan [(:receipt-handle msg) (deserializer (:body msg))])
-                  (catch Object e
-                    (log/error (pprint-str &throw-context)))))
-              ;; select over the command channel or a timeout based on sqs queue heuristics
-              (<!! (condp = num-messages
-                     0 (timeout backoff-time)
-                     10 (go :continue)
-                     (timeout poll-time)))
-              (recur)))))
-
-      ;; when enabled, interleave a clock into the stream
-      (when inline-clock-ms
-        (go-loop []
-          (<! (timeout inline-clock-ms))
-          (>!! tuple-chan [::clock (millis)])
-          (recur)))
-
-      (when clock-ms
-        (swap! clock-chan (chan))
-        (go-loop []
-          (<! (timeout clock-ms))
-          (>!! @clock-chan [::clock (millis)])
-          (recur)))
-
-      ;; slurp messages from ack-chan and delete them on sqs
-      (go-loop []
-        (let [msg (<! ack-chan)]
-          (when-not (= msg ::clock)
-            (try+
-             (sqs/delete sqs-client sqs-queue msg)
-             (catch Object e
-               (log/error
-                (pprint-str (merge &throw-context
-                                   {:message (str "Could not ack message " msg)
-                                    :queue sqs-queue}))))))
-          (recur)))
-
-      ;; slurp messages from fail-chan and mark them visible on sqs
-      (go-loop []
-        (let [msg (<! fail-chan)]
-          (when-not (= msg ::clock)
-            (try+
-             (sqs/change-message-visibility sqs-client sqs-queue msg (int 0))
-             (catch Object e
-               (log/error (pprint-str
-                           (merge &throw-context
-                                  {:message (str "Could not fail message " msg)
-                                   :queue sqs-queue}))))))
-          (recur))))
-
+        sqs-queue  (:queue sqs-conn)
+        stop-channels [tuple-stop-chan
+                       ack-stop-chan
+                       fail-stop-chan
+                       inline-clock-stop-chan
+                       clock-stop-chan]
+        stop-unit (go
+                    ;; get the signal
+                    (<! stop-chan)
+                    ;; fan out
+                    (doseq [ch stop-channels]
+                      ;; TODO: what if closed?
+                      (>! ch ::stop)
+                      (close! stop-channels))
+                    ;; wait for completion
+                    (<! (timeout (+ stop-wait-ms 25)))
+                    ::finished)
+        tuple-unit (if disable-reads?
+                     ;; disable reads by closing the chan, will provide nil
+                     (go
+                       (async/close! tuple-chan)
+                       ::disabled)
+                     ;; slurp messages from sqs and put them onto tuple-chan
+                     (thread
+                       (loop []
+                         ;; slurp messages from sqs
+                         (let [msgs (sqs/receive sqs-client
+                                                 sqs-queue
+                                                 :limit (min 10 max-waiting)
+                                                 :visibility visibility-time
+                                                 :wait-time-seconds wait-time)
+                               num-messages (count msgs)]
+                           ;; try to deserialize each message and put it on tuple-chan
+                           (doseq [msg msgs]
+                             (try+
+                              ;; do not attempt string->keyword translation during deserialization
+                              ;; there are active attacks on this and it's uacceptable with arbitary
+                              ;; input due to implementation deficiencies in clojure's reader
+                              (>!! tuple-chan [(:receipt-handle msg) (deserializer (:body msg))])
+                              (catch Object e
+                                (log/error "Caught error during deserialization/putting to tuple-chan" &throw-context))))
+                           ;; select over the command channel or a timeout based on sqs queue heuristics
+                           (if (poll! tuple-stop-chan)
+                             (do
+                               (close! tuple-chan)
+                               ::finished)
+                             (do
+                               (<!! (condp = num-messages
+                                      0 (timeout backoff-time)
+                                      10 (go :continue)
+                                      (timeout poll-time)))
+                               (recur)))))))
+        ;; when enabled, interleave a clock into the stream
+        inline-clock-unit (if inline-clock-ms
+                            (go-loop []
+                              (<! (timeout inline-clock-ms))
+                              (>!! tuple-chan [::clock (millis)])
+                              (if (poll! inline-clock-stop-chan)
+                                ::finished
+                                (recur)))
+                            (go ::disabled))
+        ;; when enabled, provide a channel with a clock message every clock-ms ms
+        clock-unit (if clock-ms
+                     (do
+                       (swap! clock-chan (chan))
+                       (go-loop []
+                         (<! (timeout clock-ms))
+                         (>!! @clock-chan [::clock (millis)])
+                         (if (poll! clock-stop-chan)
+                           (do
+                             (close! @clock-chan)
+                             ::finished)
+                           (recur))))
+                     (go ::disabled))
+        ;; slurp messages from ack-chan and delete them on sqs
+        ack-unit (go
+                   (let [bounded-chan (atom ack-stop-chan)]
+                     (loop []
+                       (let [[msg ch] (alts! [@bounded-chan ack-chan])]
+                         (cond
+                           ;; signal to cleanup
+                           (and
+                            (= ch @bounded-chan)
+                            (= ch stop-chan))
+                           (do
+                             (reset! bounded-chan (timeout stop-wait-ms))
+                             (recur))
+                           ;; we're done
+                           (= ch @bounded-chan)
+                           (do
+                             (close! ack-chan)
+                             ::finished)
+                           ;; normal processing
+                           :else
+                           (do
+                             (when-not (= msg ::clock)
+                               (try+
+                                (sqs/delete sqs-client sqs-queue msg)
+                                (catch Object e
+                                  (log/error "Failed to ack a message!" (assoc &throw-context :queue sqs-queue)))))
+                             (recur)))))))
+        ;; slurp messages from fail-chan and mark them visible on sqs
+        stop-unit (go
+                    (let [bounded-chan (atom fail-stop-chan)]
+                      (loop []
+                        (let [[msg ch] (alts! [@bounded-chan fail-chan])]
+                          (cond
+                            ;; signal to cleanup
+                            (and
+                             (= ch @bounded-chan)
+                             (= ch stop-chan))
+                            (do
+                              (reset! bounded-chan (timeout stop-wait-ms))
+                              (recur))
+                            ;; we're done
+                            (= ch @bounded-chan)
+                            (do
+                              (close! fail-chan)
+                              ::finished)
+                            ;; normal processing
+                            :else
+                            (do
+                              (when-not (= msg ::clock)
+                                (try+
+                                 (sqs/change-message-visibility sqs-client sqs-queue msg (int 0))
+                                 (catch Object e
+                                   (log/error "Could not fail message"
+                                              (assoc &throw-context
+                                                     :queue sqs-queue)))))
+                              (recur)))))))]
     ;; return the channels
     {:messages tuple-chan
      :acks ack-chan
      :fails fail-chan
-     :clock @clock-chan}))
+     :clock @clock-chan
+     :stop stop-chan
+     :units {:messages tuple-unit
+             :inline-clock inline-clock-unit
+             :clock clock-unit
+             :acks ack-unit
+             :stop stop-unit}}))
 
 
 (s/defrecord SQSAsyncQueueReader
@@ -353,6 +431,23 @@
          (>!! (:fails ~reader) ~'receipt)
          false))))
 
+
+(comment
+
+  (defmacro forever
+    [& body]
+    `(loop []
+       (do ~@body)
+       (recur)))
+
+  (def worker-threads
+    (for [_ (range 4)]
+      (thread
+        (forever
+         (do-message! sqs-reader (process-email msg))))))
+
+  )
+
 (defmacro go-message!
   {:style/indent 1}
   [reader & body]
@@ -464,25 +559,6 @@
                   component/start))
 
   (<!! (:messages reader))
-
-  (defmacro do-message!
-    {:style/indent 1}
-    [reader & body]
-    `(let [[~'receipt ~'msg] (<!! (:messages ~reader))]
-       (try
-         (do ~@body)
-         (>!! (:acks ~reader) ~'receipt)
-         (catch Throwable t#
-           (log/error t#)
-           (>!! (:fails ~reader) ~'receipt)))))
-
-  (defmacro do-messages!)
-
-  (do-message!! reader
-    (prn receipt msg))
-
-
-
 
   (send! sender {:pika :chu})
 
