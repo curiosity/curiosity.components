@@ -83,11 +83,11 @@
 
 (defnk new-sqs-conn-pool :- SQSConnPool
   "Creates a new SQSConnPool component"
-  [access-key             :- s/Str
-   secret-key             :- s/Str
-   max-retries            :- s/Int
-   queue-name             :- s/Str
-   dead-letter-queue-name :- s/Str]
+  [{access-key             :- s/Str nil}
+   {secret-key             :- s/Str nil}
+   {max-retries            :- s/Int nil}
+   {queue-name             :- s/Str nil}
+   {dead-letter-queue-name :- s/Str nil}]
   (map->SQSConnPool {:access-key access-key
                      :secret-key secret-key
                      :max-retries max-retries
@@ -497,7 +497,8 @@
       (loop []
         (let [[v# ch#] (~select [stop-chan# (:messages ~reader)])]
           (if (= ch# stop-chan#)
-            (do (log/info "Stopping sqs worker" {:label label})
+            (do (log/info "Stopping sqs worker" {:label ~label
+                                                 :type ~type})
                 ::finished)
             (let [[~'receipt ~'msg] v#]
               (try
