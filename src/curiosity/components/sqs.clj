@@ -141,7 +141,7 @@
                     (doseq [ch stop-channels]
                       ;; TODO: what if closed?
                       (>! ch ::stop)
-                      (close! stop-channels))
+                      (close! ch))
                     ;; wait for completion
                     (<! (timeout (+ stop-wait-ms 25)))
                     ::finished)
@@ -241,6 +241,12 @@
                              (= ch fail-stop-chan))
                             (do
                               (reset! bounded-chan (timeout stop-wait-ms))
+                              ;; try to fail excess messages sooner
+                              (go-loop [[receipt _] (<! tuple-chan)]
+                                (if msg
+                                  (do (>! fail-chan receipt)
+                                      (recur (<! tuple-chan)))
+                                  ::done))
                               (recur))
                             ;; we're done
                             (= ch @bounded-chan)
@@ -285,17 +291,23 @@
    messages        :- (s/protocol ReadPort)
    acks            :- (s/protocol WritePort)
    fails           :- (s/protocol WritePort)
-   clock           :- (s/protocol ReadPort)]
+   clock           :- (s/protocol ReadPort)
+   stop            :- (s/protocol WritePort)
+   units           :- AsyncQueueReaderUnits]
 
   component/Lifecycle
   (start [this]
-    (letk [[messages acks fails clock] (sqs-async-reader this)]
+    (letk [[messages acks fails clock stop units] (sqs-async-reader this)]
       (assoc this :messages messages
                   :acks acks
                   :fails fails
-                  :clock clock)))
+                  :clock clock
+                  :stop stop
+                  :units units)))
   (stop [this]
-    (assoc this :messages nil :acks nil :fails nil :clock nil)))
+    (>!! stop ::stop)
+    (<p!! (:stop units))
+    (assoc this :messages nil :acks nil :fails nil :clock nil :stop nil :units nil)))
 
 (defnk new-sqs-reader :- SQSAsyncQueueReader
   "Constructs a new SQSAsyncReader component. The system will inject the sqs-conn you need."
@@ -308,7 +320,8 @@
    {deserializer    :- s/Any json/parse-string}
    {clock-ms        :- s/Int nil}
    {inline-clock-ms :- s/Int nil}
-   {disable-reads?  :- s/Bool false}]
+   {disable-reads?  :- s/Bool false}
+   {stop-wait-ms    :- s/Int 5000}]
   (map->SQSAsyncQueueReader {:max-waiting max-waiting
                              :wait-time wait-time
                              :backoff-time backoff-time
@@ -318,7 +331,47 @@
                              :disable-reads? disable-reads?
                              :sqs-conn sqs-conn
                              :inline-clock-ms inline-clock-ms
-                             :clock-ms clock-ms}))
+                             :clock-ms clock-ms
+                             :stop-wait-ms stop-wait-ms}))
+
+(comment
+
+  (import 'com.amazonaws.auth.profile.ProfileCredentialsProvider)
+  (def credentials (-> (ProfileCredentialsProvider.)
+                       .getCredentials))
+  (def conn (component/start (new-sqs-conn-pool
+                              {:access-key (.getAWSAccessKeyId credentials)
+                               :secret-key (.getAWSSecretKey credentials)
+                               :max-retries 5
+                               :queue-name "dev-following-test"
+                               :dead-letter-queue-name "dev-following-test-dlq"})))
+
+  (require '[taoensso.nippy :as nippy])
+  (require '[clojure.data.codec.base64 :as b64])
+
+  (defn b64nippy-encoder [x]
+    (-> x
+        nippy/freeze
+        b64/encode
+        (String. "UTF-8")))
+
+  (defn b64nippy-decoder [x]
+    (-> x
+        .getBytes
+        b64/decode
+        nippy/thaw))
+
+  (def sender (component/start (new-sqs-sender conn b64nippy-encoder)))
+
+  (def reader (component/start (new-sqs-reader {:sqs-conn conn :deserializer b64nippy-decoder})))
+
+
+  (send!! sender {:pika :chu})
+
+  (prn (<!! (:messages reader)))
+
+
+  )
 
 (defnk new-sqs-acker-failer :- SQSAsyncQueueReader
   "Constructs a neutered SQSAsyncReader component that cannot read messages. The system
@@ -341,7 +394,7 @@
   (let [messages (chan max-buffer-size)]
     (thread
       (loop []
-        (let [{:keys [::type ::message] :as msg} (<!! messages)
+        (let [{message ::message type ::type :as msg} (<!! messages)
               retries (or (:retries msg) 0)]
           (condp = type
             ;; given send, send a message
@@ -357,7 +410,8 @@
                     (do
                       (log/info "retrying for the nth time" (inc retries))
                       (>!! messages (update msg :retries (fnil inc 0))))
-                    (log/error "failed to send message: " (print-str msg)))))
+                    (log/error "failed to send message: " {:msg msg
+                                                           :e e}))))
               (recur))
             ;; given shutdown, exit the loop
             ::shutdown ::shutdown-requested
