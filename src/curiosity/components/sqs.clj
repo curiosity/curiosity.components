@@ -7,7 +7,8 @@
             [cheshire.core :as json]
             [taoensso.timbre :as log]
             [com.stuartsierra.component :as component]
-            [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop timeout close! alts! poll!]]
+            [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop
+                                                  timeout close! alts! poll! alts!!]]
             [clojure.core.async.impl.protocols :refer [ReadPort WritePort Channel]]
             [clj-time.core :as t]
             [curiosity.components.rate-limit :as rl]
@@ -360,21 +361,6 @@
                                :max-retries 5
                                :queue-name "dev-following-test"
                                :dead-letter-queue-name "dev-following-test-dlq"})))
-
-  (require '[taoensso.nippy :as nippy])
-  (require '[clojure.data.codec.base64 :as b64])
-
-  (defn b64nippy-encoder [x]
-    (-> x
-        nippy/freeze
-        b64/encode
-        (String. "UTF-8")))
-
-  (defn b64nippy-decoder [x]
-    (-> x
-        .getBytes
-        b64/decode
-        nippy/thaw))
 
   (def sender (component/start (new-sqs-sender conn b64nippy-encoder)))
 
