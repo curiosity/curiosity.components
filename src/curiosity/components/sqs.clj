@@ -10,7 +10,9 @@
             [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop timeout close! alts! poll!]]
             [clojure.core.async.impl.protocols :refer [ReadPort WritePort Channel]]
             [clj-time.core :as t]
-            [curiosity.components.rate-limit :as rl])
+            [curiosity.components.rate-limit :as rl]
+            [taoensso.nippy :as nippy]
+            [clojure.data.codec.base64 :as b64])
   (:import com.amazonaws.services.sqs.AmazonSQSClient
            com.amazonaws.services.sqs.model.CreateQueueRequest))
 
@@ -306,7 +308,7 @@
                   :units units)))
   (stop [this]
     (>!! stop ::stop)
-    (<p!! (:stop units))
+    (<!! (:stop units))
     (assoc this :messages nil :acks nil :fails nil :clock nil :stop nil :units nil)))
 
 (defnk new-sqs-reader :- SQSAsyncQueueReader
@@ -333,6 +335,19 @@
                              :inline-clock-ms inline-clock-ms
                              :clock-ms clock-ms
                              :stop-wait-ms stop-wait-ms}))
+
+(defn b64nippy-encoder [x]
+  (-> x
+      nippy/freeze
+      b64/encode
+      (String. "UTF-8")))
+
+(defn b64nippy-decoder [x]
+  (-> x
+      .getBytes
+      b64/decode
+      nippy/thaw))
+
 
 (comment
 
@@ -486,22 +501,54 @@
          (>!! (:fails ~reader) ~'receipt)
          false))))
 
+(defmacro stoppable-worker
+  {:style/indent 1}
+  [type unit take put select label reader & body]
+  `(let [stop-chan# (chan)]
+     (log/info "Starting sqs worker" {:label ~label
+                                      :type ~type})
+     (~unit
+      (loop []
+        (let [[v# ch#] (~select [stop-chan# (:messages ~reader)])]
+          (if (= ch# stop-chan#)
+            (do (log/info "Stopping sqs worker" {:label label})
+                ::finished)
+            (let [[~'receipt ~'msg] v#]
+              (try
+                (do ~@body)
+                (~put (:acks ~reader) ~'receipt)
+                (catch Throwable t#
+                  (log/error "Exception in sqs worker " {:throwable t#
+                                                         :worker-type ~type
+                                                         :msg ~'msg
+                                                         :label ~label})
+                  (~put (:fails ~reader) ~'receipt)))
+              (recur))))))
+     stop-chan#))
 
-(comment
+(defmacro thread-worker
+  [label reader & body]
+  `(stoppable-worker :threaded thread <!! >!! alts!! ~reader ~label ~@body))
 
-  (defmacro forever
-    [& body]
-    `(loop []
+(defmacro go-worker
+  [label reader & body]
+  `(stoppable-worker :go-block go <! >! alts! ~reader ~label ~@body))
+
+;; WARNING: do-message! and go-message! are deprecated!
+;; use thread-worker or go-worker instead
+(defmacro do-message!
+  {:style/indent 1}
+  [reader & body]
+  `(let [[~'receipt ~'msg] (<!! (:messages ~reader))]
+     (try
        (do ~@body)
-       (recur)))
+       (>!! (:acks ~reader) ~'receipt)
+       true
+       (catch Throwable t#
+         (log/error t#)
+         (>!! (:fails ~reader) ~'receipt)
+         false))))
 
-  (def worker-threads
-    (for [_ (range 4)]
-      (thread
-        (forever
-         (do-message! sqs-reader (process-email msg))))))
-
-  )
 
 (defmacro go-message!
   {:style/indent 1}
