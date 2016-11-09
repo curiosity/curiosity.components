@@ -4,16 +4,16 @@
             [curiosity.utils :refer [pprint-str select-values]]
             [slingshot.slingshot :refer [try+]]
             [cemerick.bandalore :as sqs]
-            [cheshire.core :as json]
             [taoensso.timbre :as log]
+            [cheshire.core :as json]
             [com.stuartsierra.component :as component]
             [clojure.core.async :as async :refer [go thread chan <! >! <!! >!! go-loop
                                                   timeout close! alts! poll! alts!!]]
             [clojure.core.async.impl.protocols :refer [ReadPort WritePort Channel]]
             [clj-time.core :as t]
-            [curiosity.components.rate-limit :as rl]
-            [taoensso.nippy :as nippy]
-            [clojure.data.codec.base64 :as b64])
+            [curiosity.components.codecs :as codecs]
+            [curiosity.components.types :as types]
+            [curiosity.components.rate-limit :as rl])
   (:import com.amazonaws.services.sqs.AmazonSQSClient
            com.amazonaws.services.sqs.model.CreateQueueRequest))
 
@@ -115,7 +115,7 @@
    {backoff-time    :- s/Int 100}
    {poll-time       :- s/Int 100}
    {visibility-time :- s/Int 120}
-   {deserializer    :- s/Any json/parse-string}
+   {deserializer    :- types/Fn codecs/loads}
    {disable-reads?  :- s/Bool false}
    {inline-clock-ms :- (s/maybe s/Int) nil}
    {clock-ms        :- (s/maybe s/Int) nil}
@@ -320,7 +320,7 @@
    {backoff-time    :- s/Int 100}
    {poll-time       :- s/Int 100}
    {visibility-time :- s/Int 120}
-   {deserializer    :- s/Any json/parse-string}
+   {deserializer    :- types/Fn codecs/loads}
    {clock-ms        :- s/Int nil}
    {inline-clock-ms :- s/Int nil}
    {disable-reads?  :- s/Bool false}
@@ -337,155 +337,121 @@
                              :clock-ms clock-ms
                              :stop-wait-ms stop-wait-ms}))
 
-(defn b64nippy-encoder [x]
-  (-> x
-      nippy/freeze
-      b64/encode
-      (String. "UTF-8")))
-
-(defn b64nippy-decoder [x]
-  (-> x
-      .getBytes
-      b64/decode
-      nippy/thaw))
-
-
-(comment
-
-  (import 'com.amazonaws.auth.profile.ProfileCredentialsProvider)
-  (def credentials (-> (ProfileCredentialsProvider.)
-                       .getCredentials))
-  (def conn (component/start (new-sqs-conn-pool
-                              {:access-key (.getAWSAccessKeyId credentials)
-                               :secret-key (.getAWSSecretKey credentials)
-                               :max-retries 5
-                               :queue-name "dev-following-test"
-                               :dead-letter-queue-name "dev-following-test-dlq"})))
-
-  (def sender (component/start (new-sqs-sender conn b64nippy-encoder)))
-
-  (def reader (component/start (new-sqs-reader {:sqs-conn conn :deserializer b64nippy-decoder})))
-
-
-  (send!! sender {:pika :chu})
-
-  (prn (<!! (:messages reader)))
-
-
-  )
-
 (defnk new-sqs-acker-failer :- SQSAsyncQueueReader
   "Constructs a neutered SQSAsyncReader component that cannot read messages. The system
    wil inject the sqs-conn you need."
   []
   (map->SQSAsyncQueueReader {:disable-reads? true}))
 
-(defprotocol SQSSend
-  (send! [this message]
-    "Puts a message onto the SQS queue, blocking a goroutine")
-  (send!! [this message]
-    "Puts a message onto the SQS queue, blocking a thread"))
 
-(defnk sqs-async-sender
+(s/defrecord AsyncSender
+  [messages :- (s/protocol WritePort)
+   stop     :- (s/protocol WritePort)
+   unit     :- (s/protocol ReadPort)])
+
+(defnk sqs-async-sender :- AsyncSender
   [sqs-conn         :- SQSConnPool
-   {serializer      :- s/Any json/generate-string}
+   {serializer      :- types/Fn codecs/dumps}
    {max-retries     :- s/Int 5}
-   {max-buffer-size :- s/Int 10}]
+   {max-buffer-size :- s/Int 100}
+   {stop-wait-ms    :- s/Int 5000}
+   {label           :- s/Str "async-sender"}]
   ;; create a messages channel that also serves as a control channel
-  (let [messages (chan max-buffer-size)]
-    (thread
-      (loop []
-        (let [{message ::message type ::type :as msg} (<!! messages)
-              retries (or (:retries msg) 0)]
-          (condp = type
-            ;; given send, send a message
-            ::send
-            (do
-              (try
-                (sqs/send (:client sqs-conn)
-                          (:queue sqs-conn)
-                          (serializer message))
-                (catch Exception e
-                  ;; process retries up to max-retries
-                  (if (< retries max-retries)
-                    (do
-                      (log/info "retrying for the nth time" (inc retries))
-                      (>!! messages (update msg :retries (fnil inc 0))))
-                    (log/error "failed to send message: " {:msg msg
-                                                           :e e}))))
-              (recur))
-            ;; given shutdown, exit the loop
-            ::shutdown ::shutdown-requested
-            (do (log/error "Caught an unknown message to sqs-async-sender: " msg)
-                (recur)))))
-      ::sqs-async-reader-finished)
-    ;; return the channel
-    messages))
+  (let [messages (chan max-buffer-size)
+        stop-chan (chan 1)
+        bounded-chan (atom stop-chan)
+        results
+        (thread
+          (log/info "Starting sqs-async-sender" {:label label
+                                                 :max-retries max-retries
+                                                 :max-buffer-size max-buffer-size
+                                                 :stop-wait-ms stop-wait-ms})
+          (loop [retries 0
+                 [message ch] (alts!! [messages @bounded-chan])]
+            (cond
+              ;; Start shutdown
+              (and (= ch @bounded-chan)
+                   (= ch stop-chan))
+              (do (log/info "Starting shut down of sqs-async-sender!" {:label label
+                                                                       :stop-wait-ms stop-wait-ms})
+                  (close! messages)
+                  (reset! bounded-chan (timeout stop-wait-ms))
+                  (recur retries (alts!! [messages @bounded-chan])))
+              ;; Finish shutdown
+              (= ch @bounded-chan)
+              (do (log/info "Completing shut down of sqs-async-sender" {:label label
+                                                                        :dropped
+                                                                        (<!!
+                                                                         (let [i (atom 0)]
+                                                                           (go-loop []
+                                                                             (if (<! messages)
+                                                                               (do (swap! i inc)
+                                                                                   (recur))
+                                                                               @i))))})
+                  ::finished)
+              ;; Normal operation
+              :else
+              (do
+                ;; we have to use this retry atom as a flag because you can't recur out of try
+                (let [retry (atom false)]
+                  (try
+                    (sqs/send (:client sqs-conn)
+                              (:queue sqs-conn)
+                              (serializer message))
+                    (reset! retry false)
+                    (catch Exception e
+                      ;; process retries up to max-retries
+                      (if (< retries max-retries)
+                        (do
+                          (log/debug "sqs-async-sender retrying for the nth time" {:n (inc retries)
+                                                                                   :label label
+                                                                                   :max-retries max-retries})
+                          (reset! retry true))
+                        (do
+                          (log/error "sqs-async-sender failed to send message: " {:label label
+                                                                                  :max-retries max-retries
+                                                                                  :message message
+                                                                                  :last-error e})
+                          (reset! retry false)))))
+                  (if @retry
+                    (recur (inc retries) [message ch])
+                    (recur 0 (alts!! [messages @bounded-chan]))))))))]
+    ;; return the channels
+    {:messages messages
+     :stop     stop-chan
+     :unit     results}))
 
-(defn send!*
-  "Send a message via async-sender-chan"
-  [async-sender-chan message]
-  (>! async-sender-chan
-      {::type ::send
-       ::message message}))
-
-(defn send!!*
-  "Send a message via async-sender-chan"
-  [async-sender-chan message]
-  (>!! async-sender-chan
-       {::type ::send
-        ::message message}))
-
-(s/defn shutdown-sender!
-  "Signals to the async sender to shutdown"
-  [messages :- (s/protocol WritePort)]
-  (>!! messages {::type ::shutdown}))
 
 (s/defrecord SQSAsyncSender
-    [sqs-conn   :- SQSConnPool
-     messages   :- (s/protocol WritePort)
-     serializer :- s/Any]
-
+    [sqs-conn        :- SQSConnPool
+     max-buffer-size :- s/Int
+     max-retries     :- s/Int
+     messages        :- (s/protocol WritePort)
+     stop            :- (s/protocol WritePort)
+     unit            :- (s/protocol ReadPort)
+     serializer      :- types/Fn]
   component/Lifecycle
   (start [this]
     (if messages
       this
-      (assoc this :messages (sqs-async-sender this))))
+      (let [{:keys [messages stop unit]} (sqs-async-sender this)]
+        (assoc this
+               :messages messages
+               :stop stop
+               :unit unit))))
   (stop [this]
-    (shutdown-sender! messages)
-    (assoc this messages nil))
+    (>!! stop ::stop)
+    (<!! unit)
+    (assoc this messages nil)))
 
-  SQSSend
-  (send! [this message]
-    (send!* messages message))
-  (send!! [this message]
-    (send!!* messages message)))
-
-(s/defn new-sqs-sender :- SQSAsyncSender
-  "Create a new sqs sender component.
-   At 0 and 1 arities, expects the sqs-conn to be injected."
-  ([]
-   (new-sqs-sender json/generate-string))
-  ([serializer :- s/Any]
-   (map->SQSAsyncSender {:serializer serializer}))
-  ([sqs-conn :- SQSConnPool
-    serializer :- s/Any]
-   (map->SQSAsyncSender {:serializer serializer
-                         :sqs-conn sqs-conn})))
-
-
-(defmacro do-message!
-  {:style/indent 1}
-  [reader & body]
-  `(let [[~'receipt ~'msg] (<!! (:messages ~reader))]
-     (try
-       (do ~@body)
-       (>!! (:acks ~reader) ~'receipt)
-       true
-       (catch Throwable t#
-         (log/error t#)
-         (>!! (:fails ~reader) ~'receipt)
-         false))))
+(defnk new-sqs-sender :- SQSAsyncSender
+  [{serializer      :- types/Fn codecs/dumps}
+   {sqs-conn        :- SQSConnPool nil}
+   {max-buffer-size :- s/Int 100}
+   {max-retries     :- s/Int 5}]
+  (map->SQSAsyncSender {:serializer serializer
+                        :max-buffer-size max-buffer-size
+                        :sqs-conn sqs-conn}))
 
 (defmacro stoppable-worker
   {:style/indent 1}
@@ -515,43 +481,13 @@
 
 (defmacro thread-worker
   [label reader & body]
-  `(stoppable-worker :threaded thread <!! >!! alts!! ~reader ~label ~@body))
+  `(stoppable-worker :threaded thread <!! >!! alts!! ~label ~reader ~@body))
 
 (defmacro go-worker
   [label reader & body]
-  `(stoppable-worker :go-block go <! >! alts! ~reader ~label ~@body))
+  `(stoppable-worker :go-block go <! >! alts! ~label ~reader ~@body))
 
-;; WARNING: do-message! and go-message! are deprecated!
-;; use thread-worker or go-worker instead
-(defmacro do-message!
-  {:style/indent 1}
-  [reader & body]
-  `(let [[~'receipt ~'msg] (<!! (:messages ~reader))]
-     (try
-       (do ~@body)
-       (>!! (:acks ~reader) ~'receipt)
-       true
-       (catch Throwable t#
-         (log/error t#)
-         (>!! (:fails ~reader) ~'receipt)
-         false))))
-
-
-(defmacro go-message!
-  {:style/indent 1}
-  [reader & body]
-  `(go
-     (let [[~'receipt ~'msg] (<! (:messages ~reader))]
-       (try
-         (do ~@body)
-         (>! (:acks ~reader) ~'receipt)
-         true
-         (catch Throwable t#
-           (log/error t#)
-           (>! (:fails ~reader) ~'receipt)
-           false)))))
-
-(defnk sqs-worker
+(defnk sqs-partitioned-worker
   "Creates a worker for a given reader that maps f over batches of messages of up to rate-limit in size that have been rate-limited to rate-limit per period split into up to partitions partitions.
   f is executed in a new thread for each batch."
   [reader     :- SQSAsyncQueueReader
@@ -625,35 +561,25 @@
   [reader :- SQSAsyncQueueReader]
   (->SQSAutoFailer reader nil nil))
 
+
 (comment
 
-  (require '[com.stuartsierra.component :as component])
+  (import 'com.amazonaws.auth.profile.ProfileCredentialsProvider)
+  (def credentials (-> (ProfileCredentialsProvider.)
+                       .getCredentials))
+  (def conn (component/start (new-sqs-conn-pool
+                              {:access-key (.getAWSAccessKeyId credentials)
+                               :secret-key (.getAWSSecretKey credentials)
+                               :max-retries 5
+                               :queue-name "dev-following-test"
+                               :dead-letter-queue-name "dev-following-test-dlq"})))
 
-  (def conn (-> (new-sqs-conn-pool
-                     {:access-key "AKIAIACJKXPF35KENEJA"
-                      :secret-key "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"
-                      :max-retries 5
-                      :queue-name "dev-following-test"
-                      :dead-letter-queue-name "dev-following-test-dlq"})
-                component/start))
+  (def sender (component/start (new-sqs-sender conn codecs/dumps)))
 
-  (def conn nil)
-
-  (log/handle-uncaught-jvm-exceptions!)
-
-  (def sender (-> (new-sqs-async-sender conn json/generate-string)
-                  component/start))
-
-  (def reader (-> (new-sqs-reader {:sqs-conn conn})
-                  component/start))
-
-  (<!! (:messages reader))
-
-  (send! sender {:pika :chu})
-
-  (prn "foo")
+  (def reader (component/start (new-sqs-reader {:sqs-conn conn :deserializer codecs/loads})))
 
 
+  (prn (<!! (:messages reader)))
 
 
   )

@@ -12,7 +12,7 @@
 (defn parse-number
   "Reads a number from a string. Returns nil if not a number."
   [s]
-  (if  (re-find #"^-?\d+\.?\d*([Ee]\+\d+|[Ee]-\d+|[Ee]\d+)?$"  (.trim s))
+  (when (re-find #"^-?\d+\.?\d*([Ee]\+\d+|[Ee]-\d+|[Ee]\d+)?$"  (.trim s))
     (read-string s)))
 
 (defn try-number-fallback-str
