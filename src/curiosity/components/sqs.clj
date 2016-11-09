@@ -157,11 +157,13 @@
                      (thread
                        (loop []
                          ;; slurp messages from sqs
-                         (let [msgs (sqs/receive sqs-client
-                                                 sqs-queue
-                                                 :limit (min 10 max-waiting)
-                                                 :visibility visibility-time
-                                                 :wait-time-seconds wait-time)
+                         (let [msgs (try+ (sqs/receive sqs-client
+                                                      sqs-queue
+                                                      :limit (min 10 max-waiting)
+                                                      :visibility visibility-time
+                                                      :wait-time-seconds wait-time)
+                                         (catch Object e
+                                           (log/error "Caught error during sqs receive!" &throw-context)))
                                num-messages (count msgs)]
                            ;; try to deserialize each message and put it on tuple-chan
                            (doseq [msg msgs]
