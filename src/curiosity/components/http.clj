@@ -6,7 +6,7 @@
             [ring.middleware.format-response :refer [wrap-restful-response]]
             [schema.core :as s]
             [plumbing.core :refer :all]
-            [raven-clj.ring :as raven-ring]
+            ;[raven-clj.ring :as raven-ring]
             [curiosity.components.types :as types]
             [slingshot.slingshot :refer [try+ throw+]]
             [taoensso.timbre :as log]
@@ -52,10 +52,11 @@
   ;; This get passed a var pointing to an atom, so double deref
   (metrics.ring.instrument/instrument handler @@registry-var))
 
-(defn sentry-wrapper
-  "Wraps a ring handler, sending 500s to sentry"
-  [[sentry-dsn] handler]
-  (raven-ring/wrap-sentry handler sentry-dsn))
+(comment
+  (defn sentry-wrapper
+    "Wraps a ring handler, sending 500s to sentry"
+    [[sentry-dsn] handler]
+    (raven-ring/wrap-sentry handler sentry-dsn)))
 
 ;; Injections is a vector of keywords that will be injected on the component
 ;; prior to start time. At start time, they are selected off the RingHandler

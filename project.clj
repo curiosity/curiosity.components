@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.6.1-alpha8"
+(defproject curiosity.components "0.6.1-alpha9"
   :description "Curiosity.com components. Proprietary. Do not distribute."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Proprietary. Do not distribute."
@@ -72,6 +72,6 @@
                  [io.undertow/undertow-core "1.2.0.Beta4"]
 
                  ;; http error reporting
-                 [raven-clj "1.4.2"]
+                 [raven-clj "1.5.0"]
 
                  ])
