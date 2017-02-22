@@ -97,4 +97,14 @@
                  ;; http error reporting
                  [raven-clj "1.5.0"]
 
+                 ;; zookeeper support using 3.4.x; 3.5 isn't stable; curator 3.x requires zk 3.5!
+                 [org.apache.zookeeper/zookeeper "3.4.9"]
+                 [org.apache.curator/curator-recipes "2.11.1"]
+                 [org.apache.curator/curator-client "2.11.1"]
+                 [org.apache.curator/curator-framework "2.11.1"]
+                 [org.apache.curator/curator-x-discovery "2.11.1"]
+                 [curator "0.0.6" :exclusions [org.apache.curator/curator-recipies
+                                               org.apache.curator/curator-framework
+                                               org.apache.curator/curator-x-discovery]]
+
                  ])
