@@ -1,6 +1,5 @@
 (ns curiosity.components.http
   (:require [com.stuartsierra.component :as component]
-            [ring.adapter.undertow :refer [run-undertow]]
             immutant.web
             immutant.web.undertow
             [ring.middleware.format-response :refer [wrap-restful-response]]

@@ -13,7 +13,8 @@
   (:import [com.zaxxer.hikari HikariConfig HikariDataSource]
            java.net.URI
            java.sql.Connection
-           com.codahale.metrics.MetricRegistry))
+           com.codahale.metrics.MetricRegistry
+           com.codahale.metrics.health.HealthCheckRegistry))
 
 ;; If you're using these components, consider requiring
 ;; curiosity.components.injections.jdbc to get transparent json support
@@ -51,28 +52,31 @@
 (defn new-hikari-cp-config-map
   [config-map]
   (letk [[;; common options
-          {db-uri                   :- (s/maybe s/Str) nil}
-          {username                 :- (s/maybe s/Str) nil}
-          {password                 :- (s/maybe s/Str) nil}
-          {host                     :- (s/maybe s/Str) nil}
-          {port                     :- (s/maybe s/Int) nil}
-          {database-name            :- (s/maybe s/Str) nil}
-          {data-source-class-name   :- (s/maybe s/Str) nil}
-          {driver-class-name        :- (s/maybe s/Str) nil}
-          {auto-commit              :- s/Bool true}
-          {connection-timeout       :- s/Int   30000} ;; ms
-          {idle-timeout             :- s/Int  600000} ;; ms
-          {max-lifetime             :- s/Int 1800000} ;; ms
-          {maximum-pool-size        :- s/Int 10}
-          {metric-registry          :- (s/maybe com.codahale.metrics.MetricRegistry) nil}
-          {pool-name                :- s/Str "default-pool"}
+          {db-uri                       :- (s/maybe s/Str) nil}
+          {username                     :- (s/maybe s/Str) nil}
+          {password                     :- (s/maybe s/Str) nil}
+          {host                         :- (s/maybe s/Str) nil}
+          {port                         :- (s/maybe s/Int) nil}
+          {database-name                :- (s/maybe s/Str) nil}
+          {data-source-class-name       :- (s/maybe s/Str) nil}
+          {driver-class-name            :- (s/maybe s/Str) nil}
+          {auto-commit                  :- s/Bool true}
+          {connection-timeout           :- s/Int   30000} ;; ms
+          {idle-timeout                 :- s/Int  600000} ;; ms
+          {max-lifetime                 :- s/Int 1800000} ;; ms
+          {maximum-pool-size            :- s/Int 10}
+          {metric-registry              :- (s/maybe com.codahale.metrics.MetricRegistry) nil}
+          {health-check-registry        :- (s/maybe com.codahale.metrics.health.HealthCheckRegistry) nil}
+          {health-check-timeout         :- s/Int 10000} ;; ms
+          {health-check-99th-percentile :- s/Int 10} ;; ms
+          {pool-name                    :- s/Str "default-pool"}
           ;; infrequently used
-          {initialization-fail-fast :- s/Bool true}
-          {read-only                :- s/Bool false}
-          {register-mbeans          :- s/Bool false}
-          {transaction-isolation    :- (s/maybe TransactionIsolationLevel) nil}
-          {leak-detection-threshold :- s/Int       0} ;; ms
-          {datasource-opts          :- (s/maybe types/Map) nil}]
+          {initialization-fail-fast     :- s/Bool true}
+          {read-only                    :- s/Bool false}
+          {register-mbeans              :- s/Bool false}
+          {transaction-isolation        :- (s/maybe TransactionIsolationLevel) nil}
+          {leak-detection-threshold     :- s/Int       0} ;; ms
+          {datasource-opts              :- (s/maybe types/Map) nil}]
          config-map]
         (let [m {:db-uri db-uri
                  :data-source-class-name data-source-class-name
@@ -89,6 +93,9 @@
                  :max-lifetime max-lifetime
                  :maximum-pool-size maximum-pool-size
                  :metric-registry metric-registry
+                 :health-check-registry health-check-registry
+                 :health-check-timeout health-check-timeout
+                 :health-check-99th-percentile health-check-99th-percentile
                  :pool-name pool-name
                  :initialization-fail-fast initialization-fail-fast
                  :read-only read-only
@@ -153,6 +160,12 @@
       (.setDriverClassName config driver-class-name))
     (when-let [metric-registry (:metric-registry m)]
       (.setMetricRegistry config metric-registry))
+    (when-let [health-check-registry (:health-check-registry m)]
+      (.setHealthCheckRegistry config health-check-registry)
+      (->> (str (:health-check-timeout m))
+           (.addHealthCheckProperty config "connectivityCheckTimeoutMs"))
+      (->> (str (:health-check-99th-percentile m))
+           (.addHealthCheckProperty config "expected99thPercentileMs")))
     (when-let [tx-isolation-level (:transaction-isolation-level m)]
       (.setTransactionIsolationLevel config tx-isolation-level))
     (when datasource-opts

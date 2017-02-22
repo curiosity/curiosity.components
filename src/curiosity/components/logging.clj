@@ -3,7 +3,13 @@
   NOTE: You probably want to require this namespace prior to everything else."
   (:require [com.stuartsierra.component :as component]
             [schema.core :as s]
-            [taoensso.timbre :as timbre]))
+            [taoensso.timbre :as timbre]
+            [io.aviso.exception :as pretty]))
+
+;; Setup pretty-printing for schemas needed by timbre
+(prefer-method pretty/exception-dispatch schema.core.Schema clojure.lang.IRecord)
+(prefer-method pretty/exception-dispatch schema.core.Schema java.util.Map)
+(prefer-method pretty/exception-dispatch schema.core.Schema clojure.lang.IPersistentMap)
 
 ;; setup a default error level
 (timbre/info "Setting default Timbre :level to :error.")

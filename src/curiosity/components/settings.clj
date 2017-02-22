@@ -7,7 +7,8 @@
             [slingshot.slingshot :refer [throw+]]
             [clojure.string :as str]
             [curiosity.components.types :as types]
-            [environ.core :as environ]))
+            [environ.core :as environ]
+            [curiosity.components.metrics :refer [collect-health-checks-from-system]]))
 
 (defn parse-number
   "Reads a number from a string. Returns nil if not a number."
@@ -102,9 +103,15 @@
 (s/defn create-system
   "Creates a SystemMap given a system-factory based on available settings."
   [sys-factory :- types/Map]
-  (->> sys-factory
-       (apply concat)
-       (apply component/system-map)))
+  (let [sm (->> sys-factory
+                (apply concat)
+                (apply component/system-map))]
+    ;; Collect health-checks (:checks a-component) if :health-checks is present.
+    ;; TODO: should this be part of the composition in def-system-shortcuts for
+    ;; `jump-start`? idk, but it's more complicated to handle there.
+    (if-let [health-checks (:health-checks sm)]
+      (collect-health-checks-from-system sm :health-checks health-checks)
+      sm)))
 
 (defmacro def-system-shortcuts
   "Defines create-system, start-system, stop-system, and jump-start in your namespace."
