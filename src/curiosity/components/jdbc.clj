@@ -266,10 +266,22 @@
 (def ^{:arglists '[[db-conn honeysql-map]]}
   query-runner
   "Given a db-component and a query-map, query using the query-map returning a vector or nil"
-  (partial honey-jdbc-runner #(jdbc/query %1 %2 :identifiers kebob-case)))
+  (partial honey-jdbc-runner #(jdbc/query %1 %2 {:identifiers kebob-case})))
 
 (def ^{:arglists '[[db-conn honeysql-map]]}
   exec-runner
   "Given a db-component and a query-map, execute the query-map returning a vector or nil"
   (partial honey-jdbc-runner jdbc/execute!))
 
+(defn field*
+  [a f]
+  (keyword
+   (str (if a
+          (str a ".")
+          "")
+        (name f))))
+
+(defmacro field
+  "Correctly build field name using the symbol `alias` which should be in scope"
+  [f]
+  `(field* ~'alias ~f))
