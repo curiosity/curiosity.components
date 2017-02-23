@@ -1,4 +1,5 @@
 (ns curiosity.components.codecs
+  (:refer-clojure :exclude [load])
   (:require [taoensso.nippy :as nippy]
             [clojure.data.codec.base64 :as b64]))
 
