@@ -66,32 +66,14 @@
   [client       :- SNSClientT
    topic        :- s/Str
    message      :- s/Any
-   {max-retries :- s/Int 5}
    {serializer  :- types/Fn codecs/json-dumps}
    {label       :- s/Str "anon-sync"}]
-  (let [cli (sns-client client)
-        r
-        (loop [retries 0]
-          (if-let [result
-                   (try
-                     (->> (serializer message)
-                          (.publish cli topic))
-                     (catch Exception e
-                       (log/info "caught exception publishing sns message"
-                                 {:topic topic
-                                  :message message
-                                  :e e
-                                  :retries retries
-                                  :max-retries max-retries})))]
-            result
-            (if (>= max-retries retries)
-              nil
-              (recur (inc retries)))))]
-    (when r
-      (if (log/may-log? :trace)
-        (log/trace "Published a message: " {:msg message, :result r, :label label})
-        (log/debug "Published a message: " {:msg-id (.getMessageId r), :label label}))
-      (.getMessageId r))))
+  (when-let [r (->> (serializer message)
+                    (.publish (sns-client client) topic))]
+    (if (log/may-log? :trace)
+      (log/trace "Published a message: " {:msg message, :result r, :label label})
+      (log/debug "Published a message: " {:msg-id (.getMessageId r), :label label}))
+    (.getMessageId r)))
 
 (defnk sns-publisher :- {:msgs (s/protocol WritePort)
                          :stop (s/protocol WritePort)
@@ -99,7 +81,6 @@
   [client           :- SNSClientT
    topic            :- s/Str
    {max-buffer-size :- s/Int 10}
-   {max-retries     :- s/Int 5}
    {stop-wait-ms    :- s/Int 5000}
    {serializer      :- types/Fn codecs/json-dumps}
    {label           :- s/Str "async-sender"}]
@@ -136,7 +117,6 @@
                   (sns-publish {:client      cli
                                 :topic       topic
                                 :message     message
-                                :max-retries max-retries
                                 :serializer  serializer
                                 :label       label})
                   (recur))))))]
