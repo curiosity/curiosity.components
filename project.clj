@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.7.0"
+(defproject curiosity.components "0.8.0"
   :description "Curiosity.com components. Proprietary. Do not distribute."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Proprietary. Do not distribute."
@@ -8,13 +8,13 @@
   :repositories [["s3" {:url "s3p://curiosity-java-jars-private/jars/"
                         :no-auth true}]]
   :plugins [[s3-wagon-private "1.3.0"]]
-  :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
-                 [prismatic/plumbing "0.5.3"]
-                 [prismatic/schema "1.1.3"]
+  :dependencies [[org.clojure/clojure "1.9.0-alpha17"]
+                 [prismatic/plumbing "0.5.4"]
+                 [prismatic/schema "1.1.6"]
                  [com.taoensso/encore "2.88.2"]
                  [curiosity.utils "0.9.0" :exclusions [com.taoensso/encore]]
                  [environ "1.0.3"]
-                 [org.clojure/core.async "0.2.395"]
+                 [org.clojure/core.async "0.3.443"]
                  [com.emidln/destructured-component "0.3.0"]
                  [slingshot "0.12.2"]
 
