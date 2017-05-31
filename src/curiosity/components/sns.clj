@@ -11,6 +11,7 @@
   (:import com.amazonaws.services.sns.AmazonSNSClient
            com.amazonaws.auth.AWSCredentials
            com.amazonaws.auth.DefaultAWSCredentialsProviderChain
+           com.amazonaws.auth.BasicAWSCredentials
            com.amazonaws.ClientConfiguration
            com.amazonaws.PredefinedClientConfigurations))
 
@@ -29,19 +30,32 @@
   (stop [this]
     (assoc this :config nil)))
 
+(defrecord Credentials [aws-access-key aws-secret-key creds]
+  component/Lifecycle
+  (start [this]
+    (assoc this :creds
+           (if (and aws-access-key aws-secret-key)
+             (BasicAWSCredentials. aws-access-key aws-secret-key)
+             (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance)))))
+  (stop [this]
+    (assoc this :creds nil)))
+
 (s/defn new-client :- AmazonSNSClient
   ([]
    (new-client (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance))))
   ([creds :- AWSCredentials]
-   (AmazonSNSClient. creds (new-client-config {})))
+   (new-client creds (new-client-config {})))
   ([creds  :- AWSCredentials
     config :- ClientConfiguration]
    (AmazonSNSClient. creds config)))
 
-(defrecord SNSClient [creds config client]
+(s/defrecord SNSClient
+    [creds  :- (s/maybe Credentials)
+     config :- (s/maybe AWSClientConfig)
+     client :- AmazonSNSClient]
   component/Lifecycle
   (start [this]
-    (assoc this :client (new-client creds config)))
+    (assoc this :client (new-client (:creds creds) (:config config))))
   (stop [this]
     (assoc this :client nil)))
 
