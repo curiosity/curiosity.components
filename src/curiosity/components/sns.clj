@@ -7,44 +7,23 @@
             [clojure.core.async.impl.protocols :refer [WritePort ReadPort]]
             [curiosity.components.types :as types]
             [taoensso.timbre :as log]
-            [curiosity.components.codecs :as codecs])
+            [curiosity.components.codecs :as codecs]
+            [curiosity.components.sqs :as sqs]
+            [curiosity.utils :refer [forv]]
+            [curiosity.components.aws :as aws])
   (:import com.amazonaws.services.sns.AmazonSNSClient
-           com.amazonaws.auth.AWSCredentials
            com.amazonaws.auth.DefaultAWSCredentialsProviderChain
-           com.amazonaws.auth.BasicAWSCredentials
+           com.amazonaws.auth.AWSCredentials
            com.amazonaws.ClientConfiguration
-           com.amazonaws.PredefinedClientConfigurations))
-
-;; TODO: support everything
-(defnk new-client-config
-  [{max-connections :- s/Int 1000}
-   {max-error-retry :- s/Int 5}]
-  (cond-> (PredefinedClientConfigurations/defaultConfig)
-    (some? max-connections) (.withMaxConnections max-connections)
-    (some? max-error-retry) (.withMaxErrorRetry max-error-retry)))
-
-(defrecord AWSClientConfig [config config-map]
-  component/Lifecycle
-  (start [this]
-    (assoc this :config (new-client-config config-map)))
-  (stop [this]
-    (assoc this :config nil)))
-
-(defrecord Credentials [aws-access-key aws-secret-key creds]
-  component/Lifecycle
-  (start [this]
-    (assoc this :creds
-           (if (and aws-access-key aws-secret-key)
-             (BasicAWSCredentials. aws-access-key aws-secret-key)
-             (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance)))))
-  (stop [this]
-    (assoc this :creds nil)))
+           curiosity.components.sqs.SQSConnPool
+           curiosity.components.aws.AWSClientConfig
+           curiosity.components.aws.Credentials))
 
 (s/defn new-client :- AmazonSNSClient
   ([]
    (new-client (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance))))
   ([creds :- AWSCredentials]
-   (new-client creds (new-client-config {})))
+   (new-client creds (aws/new-client-config {})))
   ([creds  :- AWSCredentials
     config :- ClientConfiguration]
    (AmazonSNSClient. creds config)))
@@ -68,14 +47,16 @@
     (:client obj)
     obj))
 
-(s/defn new-topic :- (s/maybe s/Str)
+(s/defn create-topic! :- (s/maybe s/Str)
   "Idempotently create and return a topic ARN"
   [client :- SNSClientT
    topic  :- s/Str]
-  (some-> (.createTopic (sns-client client) topic)
-          .getTopicArn))
+  (if (aws/arn? topic)
+    topic
+    (some-> (.createTopic (sns-client client) topic)
+            .getTopicArn)))
 
-(defnk sns-publish :- (s/maybe s/Str)
+(defnk sns-publish! :- (s/maybe s/Str)
   "Synchronously publish a message to AWS SNS; supports retries"
   [client       :- SNSClientT
    topic        :- s/Str
@@ -83,7 +64,7 @@
    {serializer  :- types/Fn codecs/json-dumps}
    {label       :- s/Str "anon-sync"}]
   (when-let [r (->> (serializer message)
-                    (.publish (sns-client client) topic))]
+                    (.publish (sns-client client) (create-topic! client topic)))]
     (if (log/may-log? :trace)
       (log/trace "Published a message: " {:msg message, :result r, :label label})
       (log/debug "Published a message: " {:msg-id (.getMessageId r), :label label}))
@@ -128,12 +109,46 @@
                 ;; Normal operation
                 :else
                 (do
-                  (sns-publish {:client      cli
-                                :topic       topic
-                                :message     message
-                                :serializer  serializer
-                                :label       label})
+                  (sns-publish! {:client      cli
+                                 :topic       topic
+                                 :message     message
+                                 :serializer  serializer
+                                 :label       label})
                   (recur))))))]
     {:msgs messages
      :stop stop-chan
      :unit results}))
+
+(defnk subscribe-to-topic!
+  [client    :- SNSClientT
+   topic     :- s/Str
+   protocol  :- (s/enum :http :https :email :email-json :sms :sqs :application :lambda)
+   thing     :- s/Str]
+  (.subscribe (sns-client client) (create-topic! client topic) (name protocol) thing))
+
+(defnk subscribe-queues-to-topic!
+  [sns-cli      :- SNSClientT
+   sqs-cli      :- SQSConnPool
+   topic        :- s/Str
+   queues       :- [[s/Str s/Str]]
+   {max-retries :- s/Int 5}]
+  (let [sqs-client (:client sqs-cli)]
+    (forv [[q dlq] queues]
+          (let [topic-arn (create-topic! sns-cli topic)
+                q-url   (sqs/create-queue! sqs-client q)
+                q-arn   (sqs/queue-arn sqs-client q)
+                dlq-url (when dlq (sqs/create-queue! sqs-client dlq))
+                dlq-arn (when dlq (sqs/create-queue! sqs-client dlq))
+                dlq-setup (when (and q-arn dlq-arn)
+                            (sqs/enable-dead-letter-queue! sqs-client q-url dlq-arn max-retries))
+                sub-result (subscribe-to-topic! sns-cli topic-arn :sqs q-arn)]
+            {:sqs.queue/name q
+             :sqs.queue/arn  q-arn
+             :sqs.queue/url  q-url
+             :sqs.dlq/name dlq
+             :sqs.dlq/arn dlq-arn
+             :sqs.dlq/url dlq-url
+             :sqs.dlq/setup dlq-setup
+             :sns.topic/name topic
+             :sns.topic/arn topic-arn
+             :sns.topic/subscribe sub-result}))))
