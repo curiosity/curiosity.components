@@ -50,8 +50,8 @@
                  [metrics-clojure-ring "2.9.0"]
                  [metrics-clojure-health "2.9.0"]
 
-                 ;; s3 and sqs
-                 [com.amazonaws/aws-java-sdk "1.11.9"]
+                 ;; s3, sqs, and sns
+                 [com.amazonaws/aws-java-sdk "1.11.98"]
 
                  ; communicate with s3
                  [com.curiosity/clj-aws-s3 "0.5.0" :exclusions [joda-time com.fasterxml.jackson.core/jackson-annotations]]
@@ -74,7 +74,7 @@
                  [org.postgresql/postgresql "9.4.1212"] ;; current version
                  ; connection pooling
                  ;;[com.zaxxer/HikariCP-java6 "2.3.13"] ;; last known-working version
-                 [com.zaxxer/HikariCP "2.6.0"] ;; current-version
+                 [com.zaxxer/HikariCP "2.6.2"] ;; current-version
                  [honeysql "0.8.2"]
                  [nilenso/honeysql-postgres "0.2.2"]
 

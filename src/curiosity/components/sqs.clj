@@ -382,14 +382,11 @@
               ;; Finish shutdown
               (= ch @bounded-chan)
               (do (log/info "Completing shut down of sqs-async-sender" {:label label
-                                                                        :dropped
-                                                                        (<!!
-                                                                         (let [i (atom 0)]
-                                                                           (go-loop []
-                                                                             (if (<! messages)
-                                                                               (do (swap! i inc)
-                                                                                   (recur))
-                                                                               @i))))})
+                                                                        :dropped (<!!
+                                                                                  (go-loop [i 0]
+                                                                                    (if (<! messages)
+                                                                                      (recur (inc i))
+                                                                                      i)))})
                   ::finished)
               ;; Normal operation
               :else
