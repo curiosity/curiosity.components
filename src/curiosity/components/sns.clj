@@ -175,12 +175,14 @@
   component/Lifecycle
   (start [this]
     (if (some? results)
-      (subscribe-queues-to-topic! {:sns-cli sns
-                                   :sqs-cli sqs
-                                   :topic topic
-                                   :queues (if (string? queues-csv)
-                                             (->> (str/split queues-csv #",")
-                                                  (map vector))
-                                             [])})
-      this))
-  (stop [this] (assoc this :results nil)))
+      this
+      (let [queues (if (string? queues-csv)
+                     (->> (str/split queues-csv #",")
+                          (map vector))
+                     [])
+            results (subscribe-queues-to-topic! {:sns-cli sns
+                                                 :sqs-cli sqs
+                                                 :topic topic
+                                                 :queues queues})]
+        (assoc this :queues queues :results results))))
+  (stop [this] this))
