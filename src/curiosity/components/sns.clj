@@ -10,7 +10,8 @@
             [curiosity.components.codecs :as codecs]
             [curiosity.components.sqs :as sqs]
             [curiosity.utils :refer [forv]]
-            [curiosity.components.aws :as aws])
+            [curiosity.components.aws :as aws]
+            [clojure.string :as str])
   (:import com.amazonaws.services.sns.AmazonSNSClient
            com.amazonaws.auth.DefaultAWSCredentialsProviderChain
            com.amazonaws.auth.AWSCredentials
@@ -18,6 +19,16 @@
            curiosity.components.sqs.SQSConnPool
            curiosity.components.aws.AWSClientConfig
            curiosity.components.aws.Credentials))
+
+(s/defrecord SNSClientConfig [max-connections max-error-retry config]
+  component/Lifecycle
+  (start [this]
+    (if config
+      this
+      (assoc this :config (aws/new-client-config {:max-connections max-connections
+                                                  :max-error-retry max-error-retry}))))
+  (stop [this]
+    (assoc this :config nil)))
 
 (s/defn new-client :- AmazonSNSClient
   ([]
@@ -30,12 +41,16 @@
 
 (s/defrecord SNSClient
     [creds  :- (s/maybe Credentials)
-     config :- (s/maybe AWSClientConfig)
+     config :- (s/maybe SNSClientConfig)
      client :- AmazonSNSClient]
   component/Lifecycle
   (start [this]
-    (assoc this :client (new-client (:creds creds) (:config config))))
+    (if client
+      this
+      (assoc this :client (new-client (:creds creds) (:config config)))))
   (stop [this]
+    (when client
+      (.shutdown client))
     (assoc this :client nil)))
 
 (def SNSClientT (s/if record? SNSClient AmazonSNSClient))
@@ -127,6 +142,7 @@
   (.subscribe (sns-client client) (create-topic! client topic) (name protocol) thing))
 
 (defnk subscribe-queues-to-topic!
+  "Creates topic, queues, dlqs"
   [sns-cli      :- SNSClientT
    sqs-cli      :- SQSConnPool
    topic        :- s/Str
@@ -152,3 +168,19 @@
              :sns.topic/name topic
              :sns.topic/arn topic-arn
              :sns.topic/subscribe sub-result}))))
+
+
+(s/defrecord SNSTopic
+    [sns sqs topic queues-csv queues results]
+  component/Lifecycle
+  (start [this]
+    (if (some? results)
+      (subscribe-queues-to-topic! {:sns-cli sns
+                                   :sqs-cli sqs
+                                   :topic topic
+                                   :queues (if (string? queues-csv)
+                                             (->> (str/split queues-csv #",")
+                                                  (map vector))
+                                             [])})
+      this))
+  (stop [this] (assoc this :results nil)))

@@ -32,7 +32,9 @@
      config-map :- {s/Keyword s/Any}]
   component/Lifecycle
   (start [this]
-    (assoc this :config (new-client-config config-map)))
+    (if config
+      this
+      (assoc this :config (new-client-config config-map))))
   (stop [this]
     (assoc this :config nil)))
 
@@ -42,9 +44,11 @@
      creds          :- AWSCredentials]
   component/Lifecycle
   (start [this]
-    (assoc this :creds
-           (if (and aws-access-key aws-secret-key)
-             (BasicAWSCredentials. aws-access-key aws-secret-key)
-             (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance)))))
+    (if creds
+      this
+      (assoc this :creds
+             (if (and aws-access-key aws-secret-key)
+               (BasicAWSCredentials. aws-access-key aws-secret-key)
+               (.getCredentials (DefaultAWSCredentialsProviderChain/getInstance))))))
   (stop [this]
     (assoc this :creds nil)))

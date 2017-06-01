@@ -70,15 +70,18 @@
    queue                  :- s/Str
    dead-letter-queue-name :- s/Str
    dead-letter-queue      :- s/Str]
-
   component/Lifecycle
   (start [this]
-    (let [client (sqs/create-client access-key secret-key)
-          q (create-queue! client queue-name)
-          dlq (create-queue! client dead-letter-queue-name)]
-      (enable-dead-letter-queue! client q dlq max-retries)
-      (assoc this :client client :queue q :dead-letter-queue dlq)))
+    (if client
+      this
+      (let [client (sqs/create-client access-key secret-key)
+            q (create-queue! client queue-name)
+            dlq (create-queue! client dead-letter-queue-name)]
+        (enable-dead-letter-queue! client q dlq max-retries)
+        (assoc this :client client :queue q :dead-letter-queue dlq))))
   (stop [this]
+    (when client
+      (.shutdown client))
     (assoc this :client nil :queue nil :dead-letter-queue nil)))
 
 (defnk new-sqs-conn-pool :- SQSConnPool
