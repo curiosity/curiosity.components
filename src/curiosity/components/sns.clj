@@ -157,7 +157,10 @@
                 dlq-arn (when dlq (sqs/create-queue! sqs-client dlq))
                 dlq-setup (when (and q-arn dlq-arn)
                             (sqs/enable-dead-letter-queue! sqs-client q-url dlq-arn max-retries))
-                sub-result (subscribe-to-topic! sns-cli topic-arn :sqs q-arn)]
+                sub-result (subscribe-to-topic! {:client sns-cli
+                                                 :topic topic-arn
+                                                 :protocol :sqs
+                                                 :thing q-arn})]
             {:sqs.queue/name q
              :sqs.queue/arn  q-arn
              :sqs.queue/url  q-url
