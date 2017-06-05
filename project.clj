@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.8.7"
+(defproject curiosity.components "0.8.9"
   :description "Curiosity.com components. Proprietary. Do not distribute."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Proprietary. Do not distribute."
@@ -36,6 +36,7 @@
                  [org.slf4j/jcl-over-slf4j "1.7.21"]
                  ;; pin commons-logging so that it picks up slf4j correctly
                  [commons-logging "1.2"]
+                 [timbre-ns-pattern-level "0.1.2"]
 
                  ;; serialization
                  ; DateTime

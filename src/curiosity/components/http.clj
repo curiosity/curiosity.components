@@ -85,10 +85,9 @@
            ;; resolve the middleware
            _ (log/info "middleware is: " middleware)
            _ (log/info "keys on self: " (keys this))
-           wrapper (->> (map #(log/spy :error % (if (keyword? %) (-> this % :middleware) %)) middleware)
+           wrapper (->> (map #(if (keyword? %) (-> this % :middleware) %) middleware)
                         ;; reverse get correct composition order
                         reverse
-                        (map #(do (log/info %) %))
                         (apply comp identity))]
        (assoc this :app (wrapper app)))))
   (stop [this]
