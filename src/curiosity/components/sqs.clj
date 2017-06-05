@@ -20,6 +20,7 @@
 (defn create-queue!
   "Get or create the queue and return it"
   [client queue-name]
+  (log/info "Creating queue" {:queue queue-name})
   (->> (CreateQueueRequest. queue-name)
        (<- (.addAttributesEntry "MessageRetentionPeriod" "1209600"))
        (.createQueue client)

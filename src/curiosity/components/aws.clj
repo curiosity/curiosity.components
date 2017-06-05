@@ -6,7 +6,8 @@
            com.amazonaws.auth.DefaultAWSCredentialsProviderChain
            com.amazonaws.auth.AWSCredentials
            com.amazonaws.ClientConfiguration
-           com.amazonaws.PredefinedClientConfigurations))
+           com.amazonaws.PredefinedClientConfigurations
+           com.amazonaws.metrics.AwsSdkMetrics))
 
 (defn arn?
   "true if s is an arn"
@@ -22,7 +23,10 @@
 
 (defnk new-client-config
   [{max-connections :- s/Int 1000}
-   {max-error-retry :- s/Int 5}]
+   {max-error-retry :- s/Int 5}
+   {enable-metrics? :- s/Bool true}]
+  (when enable-metrics?
+    (AwsSdkMetrics/enableDefaultMetrics))
   (cond-> (PredefinedClientConfigurations/defaultConfig)
     (some? max-connections) (.withMaxConnections max-connections)
     (some? max-error-retry) (.withMaxErrorRetry max-error-retry)))
@@ -34,7 +38,7 @@
   (start [this]
     (if config
       this
-      (assoc this :config (new-client-config config-map))))
+      (let [client (assoc this :config (new-client-config config-map))])))
   (stop [this]
     (assoc this :config nil)))
 

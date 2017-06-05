@@ -8,7 +8,8 @@
             [clojure.string :as str]
             [curiosity.components.types :as types]
             [environ.core :as environ]
-            [curiosity.components.metrics :refer [collect-health-checks-from-system]]))
+            [curiosity.components.metrics :refer [collect-health-checks-from-system]]
+            [taoensso.timbre :as log]))
 
 (defn parse-number
   "Reads a number from a string. Returns nil if not a number."
@@ -80,9 +81,10 @@
   (start [this]
     (if built?*
       this
-      (merge this
-             (resolve-settings! project-name* schema* defaults*)
-             {:built?* true})))
+      (log/spy :info "Built settings component: "
+               (merge this
+                      (resolve-settings! project-name* schema* defaults*)
+                      {:built?* true}))))
   (stop [this]
     (if built?*
       (map->Settings {:built?* false?

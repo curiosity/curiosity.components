@@ -66,6 +66,7 @@
   "Idempotently create and return a topic ARN"
   [client :- SNSClientT
    topic  :- s/Str]
+  (log/info "Idempotently creating SNS topic" {:topic topic})
   (if (aws/arn? topic)
     topic
     (some-> (.createTopic (sns-client client) topic)
@@ -139,6 +140,7 @@
    topic     :- s/Str
    protocol  :- (s/enum :http :https :email :email-json :sms :sqs :application :lambda)
    thing     :- s/Str]
+  (log/info "Subcribing to SNS topic" {:topic topic, :protocol protocol, :thing thing})
   (.subscribe (sns-client client) (create-topic! client topic) (name protocol) thing))
 
 (defnk subscribe-queues-to-topic!
