@@ -81,7 +81,7 @@
   (start [this]
     (if built?*
       this
-      (log/spy :info "Built settings component: "
+      (log/spy :error "Built settings component: "
                (merge this
                       (resolve-settings! project-name* schema* defaults*)
                       {:built?* true}))))
