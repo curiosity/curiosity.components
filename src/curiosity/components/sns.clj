@@ -148,12 +148,12 @@
   (.subscribe (sns-client client) (create-topic! client topic) (name protocol) thing))
 
 (defnk subscribe-queue-to-topic!
-  [sns-client :- SNSClientT
-   sqs-client :- AmazonSQSClient
+  [sns        :- SNSClientT
+   sqs        :- AmazonSQSClient
    topic-arn  :- s/Str
    q-url      :- s/Str
    q-arn      :- s/Str]
-  (let [subscribe-result (subscribe-to-topic! {:client sns-client :topic topic-arn :protocol :sqs :thing q-arn})]
+  (let [subscribe-result (subscribe-to-topic! {:client sns :topic topic-arn :protocol :sqs :thing q-arn})]
     {:subscribe subscribe-result
      :permissions (let [policy {"Version" "2012-10-17"
                                 "Id" (str q-arn "/SQSDefaultPolicy")
@@ -164,8 +164,9 @@
                                               "Condition" {"ArnEquals" {"aws:SourceArn" topic-arn}}}]}]
                     (log/info "Configuring SQS Policy to allow SNS subscription"
                               {:topic topic-arn :queue q-arn :policy (json/generate-string policy)})
-                    (str (.setQueueAttributes sqs-client q-url {"Policy" (json/generate-string policy)})))
-     :raw-delivery (.setSubscriptionAttributes sns-client (.getSubscriptionArn subscribe-result) "RawMessageDelivery" "true")}))
+                    (str (.setQueueAttributes sqs q-url {"Policy" (json/generate-string policy)})))
+     :raw-delivery (.setSubscriptionAttributes (sns-client sns) (.getSubscriptionArn subscribe-result)
+                                               "RawMessageDelivery" "true")}))
 
 (defnk subscribe-queues-to-topic!
   "Creates topic, queues, dlqs"
@@ -183,8 +184,8 @@
                 dlq-arn (when dlq (sqs/create-queue! sqs-client dlq))
                 dlq-setup (when (and q-arn dlq-arn)
                             (sqs/enable-dead-letter-queue! sqs-client q-url dlq-arn max-retries))
-                sub-result (subscribe-queue-to-topic! {:sns-client sns-cli
-                                                       :sqs-client (:client sqs-cli)
+                sub-result (subscribe-queue-to-topic! {:sns sns-cli
+                                                       :sqs (:client sqs-cli)
                                                        :topic-arn topic-arn
                                                        :q-arn q-arn
                                                        :q-url q-url})]
@@ -207,8 +208,8 @@
   (def sqs-client* (-> sys :sqs-conn-pool-events-archival :client))
 
   (subscribe-queue-to-topic!
-   {:sns-client sns-client*
-    :sqs-client sqs-client*
+   {:sns sns-client*
+    :sqs sqs-client*
     :topic-arn (->> sys :sns-topic-events :topic (create-topic! sns-client*))
     :q-url (->> sys :sqs-conn-pool-events-archival :queue-name (sqs/create-queue! sqs-client*))
     :q-arn (->> sys :sqs-conn-pool-events-archival
