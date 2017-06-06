@@ -81,7 +81,7 @@
   [client       :- SNSClientT
    topic        :- s/Str
    message      :- s/Any
-   {serializer  :- types/Fn codecs/json-dumps}
+   {serializer  :- types/Fn codecs/b64-json-dumps}
    {label       :- s/Str "anon-sync"}]
   (when-let [r (->> (serializer message)
                     (.publish (sns-client client) (create-topic! client topic)))]
@@ -97,7 +97,7 @@
    topic            :- s/Str
    {max-buffer-size :- s/Int 10}
    {stop-wait-ms    :- s/Int 5000}
-   {serializer      :- types/Fn codecs/json-dumps}
+   {serializer      :- types/Fn codecs/b64-json-dumps}
    {label           :- s/Str "async-sender"}]
   (let [messages     (async/chan max-buffer-size)
         stop-chan    (async/chan 1)
@@ -153,17 +153,19 @@
    topic-arn  :- s/Str
    q-url      :- s/Str
    q-arn      :- s/Str]
-  {:subscribe (subscribe-to-topic! {:client sns-client :topic topic-arn :protocol :sqs :thing q-arn})
-   :permissions (let [policy {"Version" "2012-10-17"
-                              "Id" (str q-arn "/SQSDefaultPolicy")
-                              "Statement" [{"Effect" "Allow"
-                                            "Principal" {"AWS" "*"}
-                                            "Action" "SQS:SendMessage"
-                                            "Resource" q-arn
-                                            "Condition" {"ArnEquals" {"aws:SourceArn" topic-arn}}}]}]
-                  (log/info "Configuring SQS Policy to allow SNS subscription"
-                            {:topic topic-arn :queue q-arn :policy (json/generate-string policy)})
-                  (str (.setQueueAttributes sqs-client q-url {"Policy" (json/generate-string policy)})))})
+  (let [subscribe-result (subscribe-to-topic! {:client sns-client :topic topic-arn :protocol :sqs :thing q-arn})]
+    {:subscribe subscribe-result
+     :permissions (let [policy {"Version" "2012-10-17"
+                                "Id" (str q-arn "/SQSDefaultPolicy")
+                                "Statement" [{"Effect" "Allow"
+                                              "Principal" {"AWS" "*"}
+                                              "Action" "SQS:SendMessage"
+                                              "Resource" q-arn
+                                              "Condition" {"ArnEquals" {"aws:SourceArn" topic-arn}}}]}]
+                    (log/info "Configuring SQS Policy to allow SNS subscription"
+                              {:topic topic-arn :queue q-arn :policy (json/generate-string policy)})
+                    (str (.setQueueAttributes sqs-client q-url {"Policy" (json/generate-string policy)})))
+     :raw-delivery (.setSubscriptionAttributes sns-client (.getSubscriptionArn subscribe-result) "RawMessageDelivery" "true")}))
 
 (defnk subscribe-queues-to-topic!
   "Creates topic, queues, dlqs"
