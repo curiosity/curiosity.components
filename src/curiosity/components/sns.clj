@@ -11,11 +11,13 @@
             [curiosity.components.sqs :as sqs]
             [curiosity.utils :refer [forv]]
             [curiosity.components.aws :as aws]
+            [cheshire.core :as json]
             [clojure.string :as str])
   (:import com.amazonaws.services.sns.AmazonSNSClient
            com.amazonaws.auth.DefaultAWSCredentialsProviderChain
            com.amazonaws.auth.AWSCredentials
            com.amazonaws.ClientConfiguration
+           com.amazonaws.services.sqs.AmazonSQSClient
            curiosity.components.sqs.SQSConnPool
            curiosity.components.aws.AWSClientConfig
            curiosity.components.aws.Credentials))
@@ -62,7 +64,7 @@
     (:client obj)
     obj))
 
-(s/defn create-topic! :- (s/maybe s/Str)
+(s/defn create-topic!* :- (s/maybe s/Str)
   "Idempotently create and return a topic ARN"
   [client :- SNSClientT
    topic  :- s/Str]
@@ -71,6 +73,8 @@
     topic
     (some-> (.createTopic (sns-client client) topic)
             .getTopicArn)))
+
+(def create-topic! (memoize create-topic!*))
 
 (defnk sns-publish! :- (s/maybe s/Str)
   "Synchronously publish a message to AWS SNS; supports retries"
@@ -143,6 +147,24 @@
   (log/info "Subcribing to SNS topic" {:topic topic, :protocol protocol, :thing thing})
   (.subscribe (sns-client client) (create-topic! client topic) (name protocol) thing))
 
+(defnk subscribe-queue-to-topic!
+  [sns-client :- SNSClientT
+   sqs-client :- AmazonSQSClient
+   topic-arn  :- s/Str
+   q-url      :- s/Str
+   q-arn      :- s/Str]
+  {:subscribe (subscribe-to-topic! {:client sns-client :topic topic-arn :protocol :sqs :thing q-arn})
+   :permissions (let [policy {"Version" "2012-10-17"
+                              "Id" (str q-arn "/SQSDefaultPolicy")
+                              "Statement" [{"Effect" "Allow"
+                                            "Principal" {"AWS" "*"}
+                                            "Action" "SQS:SendMessage"
+                                            "Resource" q-arn
+                                            "Condition" {"ArnEquals" {"aws:SourceArn" topic-arn}}}]}]
+                  (log/info "Configuring SQS Policy to allow SNS subscription"
+                            {:topic topic-arn :queue q-arn :policy (json/generate-string policy)})
+                  (str (.setQueueAttributes sqs-client q-url {"Policy" (json/generate-string policy)})))})
+
 (defnk subscribe-queues-to-topic!
   "Creates topic, queues, dlqs"
   [sns-cli      :- SNSClientT
@@ -159,10 +181,11 @@
                 dlq-arn (when dlq (sqs/create-queue! sqs-client dlq))
                 dlq-setup (when (and q-arn dlq-arn)
                             (sqs/enable-dead-letter-queue! sqs-client q-url dlq-arn max-retries))
-                sub-result (subscribe-to-topic! {:client sns-cli
-                                                 :topic topic-arn
-                                                 :protocol :sqs
-                                                 :thing q-arn})]
+                sub-result (subscribe-queue-to-topic! {:sns-client sns-cli
+                                                       :sqs-client (:client sqs-cli)
+                                                       :topic-arn topic-arn
+                                                       :q-arn q-arn
+                                                       :q-url q-url})]
             {:sqs.queue/name q
              :sqs.queue/arn  q-arn
              :sqs.queue/url  q-url
@@ -173,6 +196,23 @@
              :sns.topic/name topic
              :sns.topic/arn topic-arn
              :sns.topic/subscribe sub-result}))))
+
+(comment
+
+  (def sys @curiosity.following.web.core/sys)
+
+  (def sns-client* (:sns-client sys))
+  (def sqs-client* (-> sys :sqs-conn-pool-events-archival :client))
+
+  (subscribe-queue-to-topic!
+   {:sns-client sns-client*
+    :sqs-client sqs-client*
+    :topic-arn (->> sys :sns-topic-events :topic (create-topic! sns-client*))
+    :q-url (->> sys :sqs-conn-pool-events-archival :queue-name (sqs/create-queue! sqs-client*))
+    :q-arn (->> sys :sqs-conn-pool-events-archival
+                :queue-name (sqs/create-queue! sqs-client*) (sqs/queue-arn sqs-client*))})
+
+  )
 
 
 (s/defrecord SNSTopic
