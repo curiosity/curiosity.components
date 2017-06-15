@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.8.14"
+(defproject curiosity.components "0.8.16"
   :description "Curiosity.com components. Proprietary. Do not distribute."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Proprietary. Do not distribute."
@@ -94,6 +94,8 @@
                  [ring-basic-authentication "1.0.5"]
                  [org.immutant/web  "2.1.6"]
                  [io.undertow/undertow-core "1.4.10.Final"]
+
+                 [clj-simpleflake "0.1.0"]
 
                  ;; http error reporting
                  [raven-clj "1.5.0"]

@@ -13,9 +13,14 @@
             [clj-time.core :as t]
             [curiosity.components.codecs :as codecs]
             [curiosity.components.types :as types]
+            [clj-simpleflake.core :refer [simpleflake]]
+            [flatland.useful.map :refer [keyed]]
             [curiosity.components.rate-limit :as rl])
   (:import com.amazonaws.services.sqs.AmazonSQSClient
-           com.amazonaws.services.sqs.model.CreateQueueRequest))
+           com.amazonaws.services.sqs.model.CreateQueueRequest
+           com.amazonaws.services.sqs.model.SendMessageBatchRequestEntry
+           com.amazonaws.services.sqs.model.SendMessageBatchResult
+           com.amazonaws.services.sqs.model.SendMessageBatchResultEntry))
 
 (defn create-queue!
   "Get or create the queue and return it"
@@ -46,21 +51,114 @@
                           {"maxReceiveCount" (str max-count)
                            "deadLetterTargetArn" (queue-arn client to-queue)})}))
 
-(s/defrecord AsyncQueueReaderUnits
-  [messages     :- (s/protocol ReadPort)
+(defn send-many!
+  "Sends serialized msgs to client. If successful, return nil. If errors occur return a list of maps
+  explaining which msgs failed and why."
+  [^AmazonSQSClient client msgs]
+  (let [msg-map
+        (->> (for [m msgs]
+               (let [id (str (simpleflake))]
+                 [id [m (SendMessageBatchRequestEntry. id m)]]))
+             (into {}))
+        msg-list (mapv (comp second val) msg-map)
+        ;; send the message
+        ^SendMessageBatchResult result (.sendBatch client msg-list)]
+    ;; verify everything was sent
+    (when-let [failed (seq (.getFailed result))]
+      (let [failed-result (transient [])]
+        (doseq [^SendMessageBatchResultEntry f failed
+                :let [id (.getId f)
+                      msg (first (msg-map id))
+                      payload {:msg msg
+                               :id id
+                               :code (.getCode f)
+                               :our-fault? (.getSenderFault f)
+                               :error (.getMessage f)}]]
+          (log/error "Error batch sending message: " payload)
+          (conj! failed-result payload))
+        (persistent! failed-result)))))
+
+(def ReadWritePort (s/both (s/protocol ReadPort)
+                           (s/protocol WritePort)))
+
+(s/defnk sqs-async-bulk-sender
+  [sqs-conn         :- SQSConnPool
+   {messages        :- ReadWritePort nil}
+   {max-buffer-size :- s/Int 100}
+   {max-buffer-ms   :- s/Int 50}
+   {stop-wait-ms    :- s/Int 5000}
+   {serializer      :- types/Fn codecs/dumps}]
+  (let [messages (if messages
+                   messages
+                   (chan max-buffer-size))
+        stop-chan (chan 1)
+        bounded-chan (atom stop-chan)
+        results (thread
+                  (log/info "Starting sqs-async-bulk-sender" (keyed [label max-buffer-size max-buffer-ms]))
+                  (let [default-channels (atom [messages @bounded-chan])]
+                    (loop [msg-buffer []
+                           channels @default-channels]
+                      (let [message ch] (alts!! channels)
+                           (cond
+                             ;; we got a message, so process it
+                             (= ch messages)
+                             (if (= 10 (inc (count msg-buffer)))
+                               ;; we've reached the max message amount for SQS; flush our buffer
+                               (do (thread (send-many! (:client sqs-conn)
+                                                       (map serializer (conj msg-buffer message))))
+                                   ;; reset our buffer and eliminate any timeout channel
+                                   (recur [] @default-channels))
+                               ;; continue filling the buffer
+                               (recur (conj msg-buffer message)
+                                      (if (= 2 (count channels))
+                                        ;; we don't have a timeout yet
+                                        (conj channels (timeout max-buffer-ms))
+                                        ;; we're already waiting on a timeout, continue waiting
+                                        channels)))
+                             ;; start shutdown
+                             (and (= ch @bounded-chan)
+                                  (= ch stop-chan))
+                             (do (log/info "Starting shut down of sqs-async-bulk-sender"
+                                           (keyed [label stop-wait-ms]))
+                                 (close! messages)
+                                 (reset! bounded-chan (timeout stop-wait-ms))
+                                 (reset! default-channels [messages @bounded-chan])
+                                 (recur msg-buffer
+                                        ;; avoid losing the timeout channel if available
+                                        (if (= 3 (count channels))
+                                          (conj @default-channels (last channels))
+                                          @default-channels)))
+                             ;; finish shutdown
+                             (= ch @bounded-chan)
+                             (do (log/info "Completing shut down of sqs-async-sender"
+                                           {:label label
+                                            :dropped (<!! (count (async/into [] messages)))})
+                                 (send-many! (:client sqs-conn) (map serializer msg-buffer))
+                                 ::finished)
+                             ;; we got the buffer timeout, flush our buffer and eliminate any timeout channel
+                             :else
+                             (do (thread (send-many! (:client sqs-conn) (map serializer msg-buffer)))
+                                 (recur [] @default-channels)))))))]
+    {:messages messages
+     :stop stop-chan
+     :unit results}))
+
+
+(def AsyncQueueReaderUnits
+  {messages     :- (s/protocol ReadPort)
    inline-clock :- (s/protocol ReadPort)
    clock        :- (s/protocol ReadPort)
    acks         :- (s/protocol ReadPort)
    fails        :- (s/protocol ReadPort)
-   stop         :- (s/protocol ReadPort)])
+   stop         :- (s/protocol ReadPort)})
 
-(s/defrecord AsyncQueueReader
-  [messages :- (s/protocol ReadPort)
+(def AsyncQueueReader
+  {messages :- (s/protocol ReadPort)
    acks     :- (s/protocol WritePort)
    fails    :- (s/protocol WritePort)
    clock    :- (s/protocol ReadPort)
    stop     :- (s/protocol WritePort)
-   units    :- AsyncQueueReaderUnits])
+   units    :- AsyncQueueReaderUnits})
 
 (s/defrecord SQSConnPool
   [access-key             :- s/Str
@@ -75,7 +173,9 @@
   (start [this]
     (if client
       this
-      (let [client (sqs/create-client access-key secret-key)
+      (let [client (if (and access-key secret-key)
+                     (sqs/create-client access-key secret-key)
+                     (sqs/create-client))
             q (create-queue! client queue-name)
             dlq (create-queue! client dead-letter-queue-name)]
         (enable-dead-letter-queue! client q dlq max-retries)
