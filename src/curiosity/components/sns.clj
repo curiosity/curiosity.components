@@ -222,6 +222,7 @@
     [sns sqs topic queues-csv queues results]
   component/Lifecycle
   (start [this]
+    (log/warn "Fix me!  Shape of queues is assuming a dlq and none is provided, this might break!")
     (if (some? results)
       this
       (let [queues (if (string? queues-csv)
