@@ -387,10 +387,10 @@
   (map->SQSAsyncQueueReader {:disable-reads? true}))
 
 
-(s/defrecord AsyncSender
-  [messages :- (s/protocol WritePort)
-   stop     :- (s/protocol WritePort)
-   unit     :- (s/protocol ReadPort)])
+(s/defschema AsyncSender
+  {:messages (s/protocol WritePort)
+   :stop     (s/protocol WritePort)
+   :unit     (s/protocol ReadPort)})
 
 (defnk sqs-async-sender :- AsyncSender
   [sqs-conn         :- SQSConnPool
