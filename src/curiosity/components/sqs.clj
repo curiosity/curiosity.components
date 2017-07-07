@@ -191,10 +191,11 @@
                     ::finished)
         tuple-unit (if disable-reads?
                      ;; disable reads by closing the chan, will provide nil
-                     (log/info "Disabling sqs-async-queue-reader reads as requested.")
-                     (go
-                       (async/close! tuple-chan)
-                       ::disabled)
+                     (do
+                       (log/info "Disabling sqs-async-queue-reader reads as requested.")
+                       (go
+                         (async/close! tuple-chan)
+                         ::disabled))
                      ;; slurp messages from sqs and put them onto tuple-chan
                      (thread
                        (loop []
