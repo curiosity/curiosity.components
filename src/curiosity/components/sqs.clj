@@ -191,6 +191,7 @@
                     ::finished)
         tuple-unit (if disable-reads?
                      ;; disable reads by closing the chan, will provide nil
+                     (log/info "Disabling sqs-async-queue-reader reads as requested.")
                      (go
                        (async/close! tuple-chan)
                        ::disabled)
@@ -332,6 +333,8 @@
    poll-time       :- s/Int
    visibility-time :- s/Int
    deserializer    :- s/Any
+   disable-reads?  :- s/Bool
+   num-workers     :- s/Int
    clock-ms        :- (s/maybe s/Int)
    inline-clock-ms :- (s/maybe s/Int)
    messages        :- (s/protocol ReadPort)
@@ -343,13 +346,17 @@
 
   component/Lifecycle
   (start [this]
-    (letk [[messages acks fails clock stop units] (sqs-async-reader this)]
-      (assoc this :messages messages
-                  :acks acks
-                  :fails fails
-                  :clock clock
-                  :stop stop
-                  :units units)))
+    (let [disable-reads* (boolean (or disable-reads? (< (:num-workers this) 1)))]
+      (letk [[messages acks fails clock stop units] (sqs-async-reader
+                                                     (assoc this :disable-reads? disable-reads*))]
+            (assoc this
+                   :messages messages
+                   :disable-reads? disable-reads*
+                   :acks acks
+                   :fails fails
+                   :clock clock
+                   :stop stop
+                   :units units))))
   (stop [this]
     (>!! stop ::stop)
     (<!! (:stop units))
@@ -367,7 +374,8 @@
    {clock-ms        :- s/Int nil}
    {inline-clock-ms :- s/Int nil}
    {disable-reads?  :- s/Bool false}
-   {stop-wait-ms    :- s/Int 5000}]
+   {stop-wait-ms    :- s/Int 5000}
+   {num-workers     :- s/Int 1}]
   (map->SQSAsyncQueueReader {:max-waiting max-waiting
                              :wait-time wait-time
                              :backoff-time backoff-time
@@ -378,6 +386,7 @@
                              :sqs-conn sqs-conn
                              :inline-clock-ms inline-clock-ms
                              :clock-ms clock-ms
+                             :num-workers num-workers
                              :stop-wait-ms stop-wait-ms}))
 
 (defnk new-sqs-acker-failer :- SQSAsyncQueueReader
