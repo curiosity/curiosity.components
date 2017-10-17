@@ -291,7 +291,7 @@
                               (reset! bounded-chan (timeout stop-wait-ms))
                               ;; try to fail excess messages sooner
                               (go-loop [[receipt _] (<! tuple-chan)]
-                                (if msg
+                                (if receipt
                                   (do (>! fail-chan receipt)
                                       (recur (<! tuple-chan)))
                                   ::done))
