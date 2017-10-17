@@ -119,6 +119,7 @@
         (assoc this :client client :queue q :dead-letter-queue dlq))))
   (stop [this]
     (when client
+
       (.shutdown client))
     (assoc this :client nil :queue nil :dead-letter-queue nil)))
 

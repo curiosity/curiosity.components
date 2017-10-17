@@ -53,7 +53,7 @@
   [prefix :- s/Str
    schema :- types/Map
    defaults :- types/Map
-   overrides :- types/Map]
+   overrides :- (s/maybe types/Map)]
   (let [coercer (coerce/coercer schema json-coercion-matcher)
         ?valid-settings (->> schema
                              (map-keys (fn->> name (str prefix "-") keyword))
