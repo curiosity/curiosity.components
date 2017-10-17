@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.9.2"
+(defproject curiosity.components "0.9.3"
   :description "Curiosity.com components. Proprietary. Do not distribute."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Proprietary. Do not distribute."
