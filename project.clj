@@ -1,4 +1,4 @@
-(defproject curiosity.components "0.9.0-SNAPSHOT"
+(defproject curiosity.components "0.9.3"
   :description "Curiosity.com components."
   :url "http://github.com/curiosity/curiosity.components"
   :license {:name "Eclipse Public License"
