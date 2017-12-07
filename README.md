@@ -21,7 +21,7 @@ FIXME
 
 ## License
 
-Copyright © 2015 Curiosity, Inc
+Copyright © 2015-2017 Curiosity, Inc
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
